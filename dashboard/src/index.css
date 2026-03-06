@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, sans-serif;
+  background: var(--pageBg, #0f1117);
+  color: var(--textPrimary, #e2e8f0);
+  transition: background 0.2s, color 0.2s;
+}
+
+/* Cards: override automático via CSS var quando tema muda */
+[data-theme="light"] [data-card] {
+  background: var(--cardBg) !important;
+  border-color: var(--border) !important;
+  color: var(--textPrimary);
+}
+[data-theme="light"] [data-card2] {
+  background: var(--cardBg2) !important;
+  border-color: var(--border) !important;
+}
+
+/* Transições suaves */
+[data-card], [data-card2] {
+  transition: background 0.2s, border-color 0.2s;
+}
