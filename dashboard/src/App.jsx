@@ -8,6 +8,7 @@ import Compliance from './pages/Compliance'
 import Juridico from './pages/Juridico'
 import Financeiro from './pages/Financeiro'
 import InteligenciaMercado from './pages/InteligenciaMercado'
+import TetoRPV from './pages/TetoRPV'
 
 const NAV = [
   { label: 'Funil Completo', to: '/', icon: '◈' },
@@ -18,6 +19,13 @@ const NAV = [
   { label: 'Compliance', to: '/compliance', icon: '◉' },
   { label: 'Jurídico', to: '/juridico', icon: '◉' },
   { label: 'Financeiro', to: '/financeiro', icon: '◉' },
+  { divider: true },
+  {
+    label: 'Ferramentas', to: '/ferramentas', icon: '◆',
+    children: [
+      { label: 'Teto RPV', to: '/teto-rpv' },
+    ],
+  },
   { divider: true },
   {
     label: 'Inteligência de Mercado', to: '/inteligencia-mercado', icon: '◆',
@@ -42,6 +50,11 @@ export default function App() {
 
   const isIntelActive = location.pathname === '/inteligencia-mercado'
   const activeDoc = searchParams.get('doc') || 'geral'
+
+  function isDropdownActive(item) {
+    if (item.to === '/inteligencia-mercado') return isIntelActive
+    return item.children?.some(c => c.to && location.pathname === c.to)
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: theme.pageBg, transition: 'background 0.2s' }}>
@@ -79,39 +92,41 @@ export default function App() {
               )
             }
 
-            // Item com filhos (Inteligência de Mercado)
+            // Item com filhos (dropdown)
             if (item.children) {
+              const isActive = isDropdownActive(item)
+              const isIntel = item.to === '/inteligencia-mercado'
               return (
                 <div key={item.to}>
                   {/* Item pai */}
                   <button
-                    onClick={() => navigate(`${item.to}?doc=geral`)}
+                    onClick={() => isIntel ? navigate(`${item.to}?doc=geral`) : navigate(item.children[0].to)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '9px 20px', width: '100%',
                       fontSize: 13,
-                      fontWeight: isIntelActive ? 600 : 400,
-                      color: isIntelActive ? theme.accentText : theme.textMuted,
+                      fontWeight: isActive ? 600 : 400,
+                      color: isActive ? theme.accentText : theme.textMuted,
                       background: 'transparent',
-                      borderLeft: isIntelActive ? `2px solid ${theme.accentBorder}` : '2px solid transparent',
+                      borderLeft: isActive ? `2px solid ${theme.accentBorder}` : '2px solid transparent',
                       border: 'none', cursor: 'pointer', textAlign: 'left',
                       transition: 'all 0.15s',
                     }}
                   >
                     <span style={{ fontSize: 10, opacity: 0.6 }}>{item.icon}</span>
                     <span style={{ flex: 1 }}>{item.label}</span>
-                    <span style={{ fontSize: 9, opacity: 0.5 }}>{isIntelActive ? '▾' : '▸'}</span>
+                    <span style={{ fontSize: 9, opacity: 0.5 }}>{isActive ? '▾' : '▸'}</span>
                   </button>
 
                   {/* Filhos — visíveis quando na rota */}
-                  {isIntelActive && (
+                  {isActive && (
                     <div style={{ paddingBottom: 4 }}>
                       {item.children.map(child => {
-                        const isChildActive = activeDoc === child.doc
+                        const isChildActive = child.doc ? activeDoc === child.doc : location.pathname === child.to
                         return (
                           <button
-                            key={child.doc}
-                            onClick={() => setSearchParams({ doc: child.doc })}
+                            key={child.doc || child.to}
+                            onClick={() => child.doc ? setSearchParams({ doc: child.doc }) : navigate(child.to)}
                             style={{
                               display: 'block', width: '100%', textAlign: 'left',
                               padding: '7px 20px 7px 38px',
@@ -199,6 +214,7 @@ export default function App() {
           <Route path="/juridico" element={<Juridico />} />
           <Route path="/financeiro" element={<Financeiro />} />
           <Route path="/inteligencia-mercado" element={<InteligenciaMercado />} />
+          <Route path="/teto-rpv" element={<TetoRPV />} />
         </Routes>
       </main>
     </div>
