@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cd dashboard && npm run dev",
-    "build": "cd dashboard && npm run build",
-    "preview": "cd dashboard && npm run preview"
+    "dev": "cd apps/web && npm run dev",
+    "build": "cd apps/web && npm run build",
+    "preview": "cd apps/web && npm run preview"
   }
 }
