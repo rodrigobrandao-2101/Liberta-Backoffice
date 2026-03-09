@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTheme } from '../ThemeContext.jsx'
 import { supabase } from '../supabase'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie } from 'recharts'
 import DateRangePicker from '../components/DateRangePicker'
@@ -148,22 +149,25 @@ const fmt = n => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: '
 const fmtK = n => n >= 1000000 ? `R$ ${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `R$ ${(n / 1000).toFixed(0)}K` : fmt(n)
 
 function KPICard({ label, value, sub, accent }) {
+  const { theme } = useTheme()
   return (
-    <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: `3px solid ${accent || '#2d3748'}` }}>
-      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: accent || '#f1f5f9' }}>{value}</div>
-      {sub && <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>{sub}</div>}
+    <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: `3px solid ${accent || theme.border}` }}>
+      <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: accent || theme.textPrimary }}>{value}</div>
+      {sub && <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
 
 function SectionTitle({ children }) {
-  return <h2 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>{children}</h2>
+  const { theme } = useTheme()
+  return <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>{children}</h2>
 }
 
-const ttStyle = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', fontSize: 12 }
 
 export default function Comercial() {
+  const { theme } = useTheme()
+  const ttStyle = { background: theme.cardBg, border: `1px solid ${theme.border}`, color: theme.textPrimary, fontSize: 12 }
   const [dateRange, setDateRange] = useState(['', ''])
   const [events, setEvents] = useState([])
   const [sdrQualificados, setSdrQualificados] = useState(0)
@@ -464,13 +468,13 @@ export default function Comercial() {
       {/* ── Header ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Comercial</h1>
-          <p style={{ color: '#64748b', fontSize: 13 }}>Negociação e propostas — pipe COMERCIAL</p>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary, marginBottom: 4 }}>Comercial</h1>
+          <p style={{ color: theme.textMuted, fontSize: 13 }}>Negociação e propostas — pipe COMERCIAL</p>
         </div>
         <DateRangePicker value={dateRange} onChange={setDateRange} />
       </div>
 
-      {loading && <div style={{ color: '#64748b', marginBottom: 24 }}>Carregando...</div>}
+      {loading && <div style={{ color: theme.textMuted, marginBottom: 24 }}>Carregando...</div>}
 
       {/* ── Topo de Funil: SDR → Comercial ── */}
       <div style={{ marginBottom: 8 }}>
@@ -505,27 +509,27 @@ export default function Comercial() {
         <KPICard label="Total de Negociações" value={total} sub="cards únicos no período" accent="#6366f1" />
         <KPICard label="Em Andamento" value={emAndamento} sub="fases ativas" accent="#3b82f6" />
         <KPICard label="Cliente - Stand By" value={standBy} sub="aguardando homologação" accent="#64748b" />
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: '3px solid #ef4444' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Perdidos</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: '3px solid #ef4444' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>Perdidos</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#ef4444' }}>{perdidos}</div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>saíram do pipeline</div>
+              <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 4 }}>saíram do pipeline</div>
             </div>
-            <div style={{ width: 1, height: 36, background: '#2d3748', flexShrink: 0 }} />
+            <div style={{ width: 1, height: 36, background: theme.border, flexShrink: 0 }} />
             <div>
               {(() => { const tx = total > 0 ? Math.round(perdidos / total * 100) : 0; const c = tx <= 15 ? '#22c55e' : tx <= 30 ? '#f59e0b' : '#ef4444'; return (<><div style={{ fontSize: 18, fontWeight: 700, color: c }}>{tx}%</div><div style={{ color: '#475569', fontSize: 11, marginTop: 4 }}>tx. perdidos</div></>); })()}
             </div>
           </div>
         </div>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: '3px solid #22c55e' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Fechados</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: '3px solid #22c55e' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>Fechados</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
             <div>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#22c55e' }}>{fechados}</div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>anexado nos autos</div>
+              <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 4 }}>anexado nos autos</div>
             </div>
-            <div style={{ width: 1, height: 36, background: '#2d3748', flexShrink: 0 }} />
+            <div style={{ width: 1, height: 36, background: theme.border, flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#22c55e' }}>{taxaFechamento}%</div>
               <div style={{ color: '#475569', fontSize: 11, marginTop: 4 }}>tx. fechamento</div>
@@ -536,80 +540,80 @@ export default function Comercial() {
 
       {/* ── KPIs row 2 ── */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #8b5cf6' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Volume de Crédito</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #8b5cf6' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Volume de Crédito</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#8b5cf6' }}>{fmtK(volCredito)}</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
           <div style={{ display: 'flex', borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#a78bfa' }}>{Object.values(creditByCard).length}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
-            <div style={{ width: 1, background: '#2d3748', margin: '0 12px' }} />
+            <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#a78bfa' }}>{Object.values(creditByCard).length > 0 ? fmtK(volCredito / Object.values(creditByCard).length) : '—'}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
             </div>
           </div>
         </div>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #0ea5e9' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Crédito Considerado</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #0ea5e9' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Crédito Considerado</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#0ea5e9' }}>{fmtK(volCreditoConsiderado)}</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
           <div style={{ display: 'flex', borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#38bdf8' }}>{Object.values(creditConsiderado).length}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
-            <div style={{ width: 1, background: '#2d3748', margin: '0 12px' }} />
+            <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#38bdf8' }}>{Object.values(creditConsiderado).length > 0 ? fmtK(volCreditoConsiderado / Object.values(creditConsiderado).length) : '—'}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
             </div>
           </div>
         </div>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #6366f1' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Volume de Propostas</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #6366f1' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Volume de Propostas</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#6366f1' }}>{fmtK(volProposta)}</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
           <div style={{ display: 'flex', borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#818cf8' }}>{Object.values(proposalByCard).length}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
-            <div style={{ width: 1, background: '#2d3748', margin: '0 12px' }} />
+            <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#818cf8' }}>{Object.values(proposalByCard).length > 0 ? fmtK(volProposta / Object.values(proposalByCard).length) : '—'}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
             </div>
           </div>
         </div>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #f59e0b' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Propostas Arrematadas</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #f59e0b' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Propostas Arrematadas</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{fmtK(volFechado)}</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
           <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{Object.values(finalByCard).length}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
-            <div style={{ width: 1, background: '#2d3748', margin: '0 12px' }} />
+            <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{Object.values(finalByCard).length > 0 ? fmtK(volFechado / Object.values(finalByCard).length) : '—'}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
             </div>
           </div>
         </div>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #22c55e' }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8 }}>Compra Efetiva</div>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #22c55e' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Compra Efetiva</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#22c55e' }}>{fmtK(volFinalFechados)}</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
           <div style={{ display: 'flex', borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#34d399' }}>{fechados}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
-            <div style={{ width: 1, background: '#2d3748', margin: '0 12px' }} />
+            <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#34d399' }}>{fmtK(ticketMedio)}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
@@ -632,14 +636,14 @@ export default function Comercial() {
           { label: 'Arremates → Concluídas',                  from: volFechado,            to: volFinalFechados,      pct: tx3, color: '#22c55e' },
         ]
         return (
-          <div style={{ background: '#1e2130', borderRadius: 12, padding: '8px 20px', marginBottom: 14 }}>
+          <div style={{ background: theme.cardBg, borderRadius: 12, padding: '8px 20px', marginBottom: 14 }}>
             <div style={{ color: '#475569', fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Conversão de Volume</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
               {items.map((item, i) => (
                 <div key={i} style={{ paddingLeft: i > 0 ? 20 : 0, paddingRight: i < 3 ? 20 : 0, borderLeft: i > 0 ? '1px solid #2d3748' : 'none' }}>
-                  <div style={{ fontSize: 10, color: '#64748b', marginBottom: 3 }}>{item.label}</div>
+                  <div style={{ fontSize: 10, color: theme.textMuted, marginBottom: 3 }}>{item.label}</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.pct}%</div>
-                  <div style={{ height: 3, background: '#252b3d', borderRadius: 2, overflow: 'hidden', marginBottom: 3 }}>
+                  <div style={{ height: 3, background: theme.cardBg2, borderRadius: 2, overflow: 'hidden', marginBottom: 3 }}>
                     <div style={{ height: '100%', width: `${Math.min(item.pct, 100)}%`, background: item.color, borderRadius: 2, transition: 'width 0.6s ease' }} />
                   </div>
                   <div style={{ fontSize: 10, color: '#475569' }}>
@@ -654,16 +658,16 @@ export default function Comercial() {
 
       {/* ── APRESENTAÇÃO - PROPOSTA INICIAL ── */}
       {nApresent > 0 && (
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24, marginBottom: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, marginBottom: 24 }}>
           <div style={{ marginBottom: 18 }}>
-            <h2 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Apresentação — Proposta Inicial</h2>
+            <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Apresentação — Proposta Inicial</h2>
             <p style={{ color: '#475569', fontSize: 12, marginTop: 4, marginBottom: 0 }}>{nApresent} cards chegaram a esta fase</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
 
             {/* Coluna 1: Decisão do cliente */}
             <div style={{ paddingRight: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Decisão do Cliente</div>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Decisão do Cliente</div>
               {[
                 { label: 'Aceitou a proposta',   count: decSim,      color: '#22c55e' },
                 { label: 'Recusou a proposta',   count: decNao,      color: '#ef4444' },
@@ -673,12 +677,12 @@ export default function Comercial() {
                 return (
                   <div key={i} style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 11, color: '#94a3b8' }}>{item.label}</span>
+                      <span style={{ fontSize: 11, color: theme.textSecondary }}>{item.label}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: item.color }}>
                         {item.count} <span style={{ fontSize: 10, color: '#475569', fontWeight: 400 }}>({pct}%)</span>
                       </span>
                     </div>
-                    <div style={{ height: 6, background: '#252b3d', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: 6, background: theme.cardBg2, borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: 3, transition: 'width 0.5s ease' }} />
                     </div>
                   </div>
@@ -686,15 +690,15 @@ export default function Comercial() {
               })}
               {(jaSimCount + jaNaoCount) > 0 && (
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #2d3748' }}>
-                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Já recebeu outra proposta?</div>
+                  <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Já recebeu outra proposta?</div>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>{jaSimCount}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Sim</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>Sim</div>
                     </div>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#64748b' }}>{jaNaoCount}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Não</div>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: theme.textMuted }}>{jaNaoCount}</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>Não</div>
                     </div>
                   </div>
                 </div>
@@ -703,27 +707,27 @@ export default function Comercial() {
 
             {/* Coluna 2: Renegociação */}
             <div style={{ borderLeft: '1px solid #2d3748', paddingLeft: 24, paddingRight: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
                 Renegociação <span style={{ color: '#475569', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>({decInseguro} inseguros)</span>
               </div>
               {decInseguro === 0
                 ? <div style={{ color: '#475569', fontSize: 12 }}>Nenhum inseguro no período</div>
                 : <>
                     <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                      <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #22c55e' }}>
+                      <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #22c55e' }}>
                         <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>{negSim}</div>
-                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>negociou</div>
+                        <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>negociou</div>
                         <div style={{ fontSize: 10, color: '#475569' }}>{decInseguro > 0 ? Math.round(negSim / decInseguro * 100) : 0}%</div>
                       </div>
-                      <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #ef4444' }}>
+                      <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #ef4444' }}>
                         <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{negNao}</div>
-                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>não negociou</div>
+                        <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>não negociou</div>
                         <div style={{ fontSize: 10, color: '#475569' }}>{decInseguro > 0 ? Math.round(negNao / decInseguro * 100) : 0}%</div>
                       </div>
                     </div>
                     {descontoMedio != null && (
-                      <div style={{ background: '#252b3d', borderRadius: 8, padding: '8px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: '#64748b' }}>Desconto médio negociado</span>
+                      <div style={{ background: theme.cardBg2, borderRadius: 8, padding: '8px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: theme.textMuted }}>Desconto médio negociado</span>
                         <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>-{descontoMedio.toFixed(1)}%</span>
                       </div>
                     )}
@@ -733,7 +737,7 @@ export default function Comercial() {
                         {motivoData.map(([motivo, count], i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
                             <div style={{ width: 6, height: 6, borderRadius: 2, background: '#f59e0b', flexShrink: 0 }} />
-                            <div style={{ flex: 1, fontSize: 11, color: '#94a3b8', lineHeight: 1.3 }}>{motivo}</div>
+                            <div style={{ flex: 1, fontSize: 11, color: theme.textSecondary, lineHeight: 1.3 }}>{motivo}</div>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', flexShrink: 0 }}>{count}</div>
                           </div>
                         ))}
@@ -745,7 +749,7 @@ export default function Comercial() {
 
             {/* Coluna 3: Rentabilidade e valores */}
             <div style={{ borderLeft: '1px solid #2d3748', paddingLeft: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Rentabilidade</div>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Rentabilidade</div>
               <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: '#475569', marginBottom: 4 }}>Esperada (média)</div>
@@ -767,13 +771,13 @@ export default function Comercial() {
                   <div style={{ fontSize: 10, color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Valor: Desejado vs Proposta</div>
                   {valorDesejadoMedio != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>Desejado pelo cliente</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>{fmtK(valorDesejadoMedio)}</span>
+                      <span style={{ fontSize: 11, color: theme.textMuted }}>Desejado pelo cliente</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: theme.textSecondary }}>{fmtK(valorDesejadoMedio)}</span>
                     </div>
                   )}
                   {propMedia != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>Proposta apresentada</span>
+                      <span style={{ fontSize: 11, color: theme.textMuted }}>Proposta apresentada</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#6366f1' }}>{fmtK(propMedia)}</span>
                     </div>
                   )}
@@ -797,16 +801,16 @@ export default function Comercial() {
 
       {/* ── ARREMATE COMERCIAL ── */}
       {nArremate > 0 && (
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24, marginBottom: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, marginBottom: 24 }}>
           <div style={{ marginBottom: 18 }}>
-            <h2 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Arremate Comercial</h2>
+            <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Arremate Comercial</h2>
             <p style={{ color: '#475569', fontSize: 12, marginTop: 4, marginBottom: 0 }}>{nArremate} cards chegaram a esta fase</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
 
             {/* Coluna 1: Proposta alterada */}
             <div style={{ paddingRight: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Proposta Precisou ser Alterada</div>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Proposta Precisou ser Alterada</div>
               {[
                 { label: 'Sim, foi alterada', count: arrAlterada,    color: '#f59e0b' },
                 { label: 'Não foi alterada',  count: arrNaoAlterada, color: '#6366f1' },
@@ -815,12 +819,12 @@ export default function Comercial() {
                 return (
                   <div key={i} style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 11, color: '#94a3b8' }}>{item.label}</span>
+                      <span style={{ fontSize: 11, color: theme.textSecondary }}>{item.label}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: item.color }}>
                         {item.count} <span style={{ fontSize: 10, color: '#475569', fontWeight: 400 }}>({pct}%)</span>
                       </span>
                     </div>
-                    <div style={{ height: 6, background: '#252b3d', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: 6, background: theme.cardBg2, borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: 3, transition: 'width 0.5s ease' }} />
                     </div>
                   </div>
@@ -828,18 +832,18 @@ export default function Comercial() {
               })}
               {arrAlterada > 0 && (
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #2d3748' }}>
-                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
                     Dos {arrAlterada} alterados — aceitou a corrigida?
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #22c55e' }}>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #22c55e' }}>
                       <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>{arrAceitouCorrigida}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>aceitou</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>aceitou</div>
                       <div style={{ fontSize: 10, color: '#475569' }}>{arrAlterada > 0 ? Math.round(arrAceitouCorrigida / arrAlterada * 100) : 0}%</div>
                     </div>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #ef4444' }}>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', textAlign: 'center', borderTop: '2px solid #ef4444' }}>
                       <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{arrNaoAceitouCorrigida}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>recusou</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>recusou</div>
                       <div style={{ fontSize: 10, color: '#475569' }}>{arrAlterada > 0 ? Math.round(arrNaoAceitouCorrigida / arrAlterada * 100) : 0}%</div>
                     </div>
                   </div>
@@ -849,7 +853,7 @@ export default function Comercial() {
 
             {/* Coluna 2: Ajuste de valor */}
             <div style={{ borderLeft: '1px solid #2d3748', paddingLeft: 24, paddingRight: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
                 Variação: Proposta → Final
               </div>
               {arrDeltaMedio != null ? (
@@ -864,17 +868,17 @@ export default function Comercial() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{arrReducao}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>com redução</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>com redução</div>
                     </div>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: '#f59e0b' }}>{arrAumento}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>com aumento</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>com aumento</div>
                     </div>
-                    <div style={{ flex: 1, background: '#252b3d', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#64748b' }}>{arrDeltaVals.length - arrReducao - arrAumento}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>sem variação</div>
+                    <div style={{ flex: 1, background: theme.cardBg2, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: theme.textMuted }}>{arrDeltaVals.length - arrReducao - arrAumento}</div>
+                      <div style={{ fontSize: 10, color: theme.textMuted, marginTop: 2 }}>sem variação</div>
                     </div>
                   </div>
                   {arrComReneg > 0 && (
@@ -890,7 +894,7 @@ export default function Comercial() {
 
             {/* Coluna 3: Valores finais */}
             <div style={{ borderLeft: '1px solid #2d3748', paddingLeft: 24 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Valor Final da Proposta</div>
+              <div style={{ fontSize: 11, color: theme.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Valor Final da Proposta</div>
               {arrAvgFinal != null && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 11, color: '#475569', marginBottom: 4 }}>Média dos deals</div>
@@ -902,11 +906,11 @@ export default function Comercial() {
                 <div style={{ paddingTop: 14, borderTop: '1px solid #2d3748' }}>
                   <div style={{ fontSize: 10, color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Comparativo de Base</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>Proposta base (média)</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>{fmtK(arrAvgBase)}</span>
+                    <span style={{ fontSize: 11, color: theme.textMuted }}>Proposta base (média)</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: theme.textSecondary }}>{fmtK(arrAvgBase)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>Valor final (média)</span>
+                    <span style={{ fontSize: 11, color: theme.textMuted }}>Valor final (média)</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{fmtK(arrAvgFinal)}</span>
                   </div>
                   {(() => {
@@ -931,7 +935,7 @@ export default function Comercial() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
 
       {/* Funil Histórico - esquerda */}
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column' }}>
         <SectionTitle>Funil de Conversão — Volume Histórico por Fase</SectionTitle>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
           {FUNNEL_STEPS.map((step, i) => {
@@ -943,7 +947,7 @@ export default function Comercial() {
             return (
               <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minHeight: 22 }}>
                 {/* Label fixo à esquerda */}
-                <div style={{ width: 140, flexShrink: 0, fontSize: 9, color: '#94a3b8', textAlign: 'right', lineHeight: 1.3 }}>
+                <div style={{ width: 140, flexShrink: 0, fontSize: 9, color: theme.textSecondary, textAlign: 'right', lineHeight: 1.3 }}>
                   {step.label}
                 </div>
                 {/* Área do funil centralizada */}
@@ -972,7 +976,7 @@ export default function Comercial() {
         </div>
       </div>
       {/* Funil Cards por Fase - direita */}
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
         <SectionTitle>Funil — Cards por Fase Atual</SectionTitle>
         {funnelData.length === 0
           ? <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>Sem dados</div>
@@ -983,14 +987,14 @@ export default function Comercial() {
                 <div key={i}>
                   {i === firstLostIdx && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '14px 0 12px' }}>
-                      <div style={{ flex: 1, height: 1, background: '#3b3f52' }} />
+                      <div style={{ flex: 1, height: 1, background: theme.border }} />
                       <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Perdidos</span>
-                      <div style={{ flex: 1, height: 1, background: '#3b3f52' }} />
+                      <div style={{ flex: 1, height: 1, background: theme.border }} />
                     </div>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <div style={{ width: 200, fontSize: 11, color: d.lost ? '#fca5a5' : '#94a3b8', textAlign: 'right', flexShrink: 0 }}>{d.fullName}</div>
-                    <div style={{ flex: 1, height: 24, background: '#252b3d', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ width: 200, fontSize: 11, color: d.lost ? '#fca5a5' : theme.textSecondary, textAlign: 'right', flexShrink: 0 }}>{d.fullName}</div>
+                    <div style={{ flex: 1, height: 24, background: theme.cardBg2, borderRadius: 4, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${maxCount > 0 ? (d.count / maxCount) * 100 : 0}%`, background: d.color, borderRadius: 4, transition: 'width 0.5s ease', display: 'flex', alignItems: 'center', paddingLeft: 8 }}>
                         {(d.count / maxCount) * 100 > 15 && <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>{d.count}</span>}
                       </div>
@@ -1005,12 +1009,12 @@ export default function Comercial() {
 
       {/* ── Tempo Médio por Fase ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Tempo Médio por Fase</h2>
+          <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>Tempo Médio por Fase</h2>
           <button
             onClick={() => setDurSortByTime(v => !v)}
-            style={{ background: durSortByTime ? '#6366f1' : '#252b3d', border: '1px solid ' + (durSortByTime ? '#6366f1' : '#3b3f52'), color: durSortByTime ? '#fff' : '#94a3b8', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
+            style={{ background: durSortByTime ? '#6366f1' : theme.cardBg2, border: '1px solid ' + (durSortByTime ? '#6366f1' : theme.border), color: durSortByTime ? '#fff' : theme.textSecondary, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
           >
             {durSortByTime ? '↕ Tempo' : '↕ Fase'}
           </button>
@@ -1022,16 +1026,16 @@ export default function Comercial() {
               .map((d, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #1a1f2e' }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, fontSize: 11, color: d.lost ? '#fca5a5' : '#94a3b8', lineHeight: 1.3 }}>{d.fullName}</div>
+                  <div style={{ flex: 1, fontSize: 11, color: d.lost ? '#fca5a5' : theme.textSecondary, lineHeight: 1.3 }}>{d.fullName}</div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: d.color }}>{d.dias}d </span>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>{d.horas}h</span>
+                    <span style={{ fontSize: 11, color: theme.textMuted }}>{d.horas}h</span>
                   </div>
                 </div>
               ))
         }
       </div>
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column' }}>
         <SectionTitle>Tempos de Transição (dias)</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gridAutoRows: '1fr', gap: 8, flex: 1 }}>
           {TRANSITIONS.map((t, i) => {
@@ -1040,17 +1044,17 @@ export default function Comercial() {
             const max = allDays.length ? Math.max(...allDays) : 1
             const accent = t.summary ? '#f59e0b' : t.dias == null ? '#475569' : t.dias <= max * 0.33 ? '#22c55e' : t.dias <= max * 0.66 ? '#f59e0b' : '#ef4444'
             return (
-              <div key={i} style={{ background: '#252b3d', borderRadius: 8, padding: '10px 12px', borderTop: `2px solid ${accent}` }}>
-                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4, lineHeight: 1.3 }}>{t.label}</div>
+              <div key={i} style={{ background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', borderTop: `2px solid ${accent}` }}>
+                <div style={{ fontSize: 10, color: theme.textMuted, marginBottom: 4, lineHeight: 1.3 }}>{t.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: accent, lineHeight: 1 }}>
                   {t.dias != null ? `${t.dias}d` : '—'}
                 </div>
                 {t.dias != null && !t.summary && (
-                  <div style={{ marginTop: 6, height: 2, background: '#1e2130', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ marginTop: 6, height: 2, background: theme.cardBg, borderRadius: 2, overflow: 'hidden' }}>
                     <div style={{ height: '100%', width: `${Math.max((t.dias / max) * 100, 4)}%`, background: accent, borderRadius: 2 }} />
                   </div>
                 )}
-                {t.summary && <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>jornada completa</div>}
+                {t.summary && <div style={{ fontSize: 9, color: theme.textMuted, marginTop: 3 }}>jornada completa</div>}
               </div>
             )
           })}
@@ -1063,13 +1067,13 @@ export default function Comercial() {
         const tableDeals = tablePhaseFilter === 'all' ? recentDeals : recentDeals.filter(r => r.phase === tablePhaseFilter)
         const allPhases = [...new Set(recentDeals.map(r => r.phase))].sort()
         return (
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24, marginBottom: 24 }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Todas as Negociações ({tableDeals.length})</div>
+          <div style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Todas as Negociações ({tableDeals.length})</div>
           <select
             value={tablePhaseFilter}
             onChange={e => setTablePhaseFilter(e.target.value)}
-            style={{ background: '#252b3d', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, outline: 'none', cursor: 'pointer' }}
+            style={{ background: theme.cardBg2, border: `1px solid ${theme.border}`, color: theme.textPrimary, borderRadius: 8, padding: '6px 10px', fontSize: 12, outline: 'none', cursor: 'pointer' }}
           >
             <option value="all">Todas as fases</option>
             {allPhases.map(p => <option key={p} value={p}>{p}</option>)}
@@ -1080,22 +1084,22 @@ export default function Comercial() {
             <thead>
               <tr>
                 {['Cliente', 'Fase Atual', 'Entrada no Pipe', 'Entrada na Fase', 'Dias', 'Créd. Consid.', 'Proposta', 'Deságio', 'Aceitou', 'Valor Final', 'Δ Proposta→Final'].map(h => (
-                  <th key={h} style={{ padding: '8px 10px', color: '#64748b', fontWeight: 600, textAlign: 'left', background: '#1e2130', position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid #2d3748', whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ padding: '8px 10px', color: theme.textMuted, fontWeight: 600, textAlign: 'left', background: theme.cardBg, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid #2d3748', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {tableDeals.map((row, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #1a1f2e', opacity: row.lost ? 0.7 : 1 }}>
-                  <td style={{ padding: '7px 10px', color: row.lost ? '#94a3b8' : '#e2e8f0' }}>{row.name}</td>
+                  <td style={{ padding: '7px 10px', color: row.lost ? theme.textSecondary : theme.textPrimary }}>{row.name}</td>
                   <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
                     <span style={{ background: `${phaseColorMap[row.phase]}22`, color: phaseColorMap[row.phase], padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
                       {row.phase}
                     </span>
                   </td>
-                  <td style={{ padding: '7px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>{row.pipeDate}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>{row.date}</td>
-                  <td style={{ padding: '7px 10px', color: row.diasNoPipe > 90 ? '#f59e0b' : row.diasNoPipe > 30 ? '#94a3b8' : '#64748b', fontWeight: row.diasNoPipe > 90 ? 600 : 400, whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '7px 10px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{row.pipeDate}</td>
+                  <td style={{ padding: '7px 10px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{row.date}</td>
+                  <td style={{ padding: '7px 10px', color: row.diasNoPipe > 90 ? '#f59e0b' : row.diasNoPipe > 30 ? theme.textSecondary : theme.textMuted, fontWeight: row.diasNoPipe > 90 ? 600 : 400, whiteSpace: 'nowrap' }}>
                     {row.diasNoPipe}d
                   </td>
                   <td style={{ padding: '7px 10px', color: '#a5b4fc', whiteSpace: 'nowrap' }}>{row.credConsid ? fmt(row.credConsid) : '—'}</td>
@@ -1129,7 +1133,7 @@ export default function Comercial() {
       {/* ── Perdas ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, marginBottom: 24 }}>
 
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
           <SectionTitle>Motivo de Perda</SectionTitle>
           {lostData.length === 0
             ? <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', paddingTop: 60 }}>Sem perdas</div>
@@ -1163,13 +1167,13 @@ export default function Comercial() {
                       {lostData.map((d, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
-                          <div style={{ flex: 1, fontSize: 11, color: '#94a3b8', lineHeight: 1.3 }}>{d.name}</div>
+                          <div style={{ flex: 1, fontSize: 11, color: theme.textSecondary, lineHeight: 1.3 }}>{d.name}</div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: PIE_COLORS[i % PIE_COLORS.length] }}>
                             {Math.round(d.count / totalLost * 100)}%
                           </div>
                         </div>
                       ))}
-                      <div style={{ borderTop: '1px solid #2d3748', marginTop: 4, paddingTop: 6, fontSize: 11, color: '#64748b' }}>
+                      <div style={{ borderTop: '1px solid #2d3748', marginTop: 4, paddingTop: 6, fontSize: 11, color: theme.textMuted }}>
                         Total: {totalLost} perdidos
                       </div>
                     </div>

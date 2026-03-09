@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import { useTheme } from './ThemeContext.jsx'
+import logoSvg from './assets/logo.svg'
 import FunilCompleto from './pages/FunilCompleto'
 import MetaAds from './pages/MetaAds'
 import SDR from './pages/SDR'
@@ -10,15 +11,21 @@ import Financeiro from './pages/Financeiro'
 import InteligenciaMercado from './pages/InteligenciaMercado'
 import TetoRPV from './pages/TetoRPV'
 
+const DASHBOARD_ROUTES = ['/', '/meta-ads', '/sdr', '/comercial', '/compliance', '/juridico', '/financeiro']
+
 const NAV = [
-  { label: 'Funil Completo', to: '/', icon: '◈' },
-  { divider: true },
-  { label: 'Meta Ads', to: '/meta-ads', icon: '◉' },
-  { label: 'SDR', to: '/sdr', icon: '◉' },
-  { label: 'Comercial', to: '/comercial', icon: '◉' },
-  { label: 'Compliance', to: '/compliance', icon: '◉' },
-  { label: 'Jurídico', to: '/juridico', icon: '◉' },
-  { label: 'Financeiro', to: '/financeiro', icon: '◉' },
+  {
+    label: 'Dashboard', icon: '◈',
+    children: [
+      { label: 'Funil Completo', to: '/' },
+      { label: 'Meta Ads',       to: '/meta-ads' },
+      { label: 'SDR',            to: '/sdr' },
+      { label: 'Comercial',      to: '/comercial' },
+      { label: 'Compliance',     to: '/compliance' },
+      { label: 'Jurídico',       to: '/juridico' },
+      { label: 'Financeiro',     to: '/financeiro' },
+    ],
+  },
   { divider: true },
   {
     label: 'Ferramentas', to: '/ferramentas', icon: '◆',
@@ -32,12 +39,12 @@ const NAV = [
     children: [
       { label: 'Visão Geral',                  doc: 'geral' },
       { label: 'Glossário de Termos',           doc: 'bloco0' },
-      { label: 'Bloco 1 — Tetos por Ente',     doc: 'bloco1' },
-      { label: 'Bloco 2 — Teses',              doc: 'bloco2' },
-      { label: 'Bloco 3 — Jurimetria',         doc: 'bloco3' },
-      { label: 'Bloco 4 — Due Diligence',      doc: 'bloco4' },
-      { label: 'Bloco 5 — Tributação',         doc: 'bloco5' },
-      { label: 'Bloco 6 — Fluxo Operacional',  doc: 'bloco6' },
+      { label: 'Tetos por Ente',     doc: 'bloco1' },
+      { label: 'Teses',              doc: 'bloco2' },
+      { label: 'Jurimetria',         doc: 'bloco3' },
+      { label: 'Due Diligence',      doc: 'bloco4' },
+      { label: 'Tributação',         doc: 'bloco5' },
+      { label: 'Fluxo Operacional',  doc: 'bloco6' },
     ],
   },
 ]
@@ -53,6 +60,7 @@ export default function App() {
 
   function isDropdownActive(item) {
     if (item.to === '/inteligencia-mercado') return isIntelActive
+    if (item.label === 'Dashboard') return DASHBOARD_ROUTES.includes(location.pathname)
     return item.children?.some(c => c.to && location.pathname === c.to)
   }
 
@@ -77,10 +85,18 @@ export default function App() {
       }}>
         {/* Logo */}
         <div style={{ padding: '0 20px 28px' }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: theme.textPrimary, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
-            Liberta
-          </div>
-          <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2, transition: 'color 0.2s' }}>Precatório · CRM</div>
+          <img
+            src={logoSvg}
+            alt="Liberta Precatório"
+            style={{
+              width: '100%',
+              maxWidth: 160,
+              display: 'block',
+              filter: isDark ? 'brightness(0) invert(1)' : 'none',
+              opacity: isDark ? 0.9 : 1,
+              transition: 'filter 0.2s, opacity 0.2s',
+            }}
+          />
         </div>
 
         {/* Nav */}
@@ -100,7 +116,7 @@ export default function App() {
                 <div key={item.to}>
                   {/* Item pai */}
                   <button
-                    onClick={() => isIntel ? navigate(`${item.to}?doc=geral`) : navigate(item.children[0].to)}
+                    onClick={() => isIntel ? navigate(`${item.to}?doc=geral`) : navigate(item.children[0].to ?? item.to)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '9px 20px', width: '100%',

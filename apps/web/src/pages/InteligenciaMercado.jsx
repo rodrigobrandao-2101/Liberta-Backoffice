@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTheme } from '../ThemeContext.jsx'
@@ -23,25 +24,120 @@ const DOCS = {
   bloco6: docBloco6,
 }
 
+function parseIntoSections(markdown) {
+  const lines = markdown.split('\n')
+  const intro = []
+  const sections = []
+  let current = null
+
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      if (current) sections.push(current)
+      current = { heading: line.slice(3).trim(), content: [] }
+    } else if (current) {
+      current.content.push(line)
+    } else {
+      intro.push(line)
+    }
+  }
+  if (current) sections.push(current)
+
+  return { intro: intro.join('\n'), sections }
+}
+
 export default function InteligenciaMercado() {
   const [searchParams] = useSearchParams()
   const { theme } = useTheme()
-  const mdComponents = useMdComponents()
-
   const activeDoc = searchParams.get('doc') || 'geral'
   const content = DOCS[activeDoc] || DOCS.geral
 
+  const { intro, sections } = useMemo(() => parseIntoSections(content), [content])
+  const [openSections, setOpenSections] = useState(() => new Set(sections.map((_, i) => i)))
+
+  // Reset open sections when doc changes
+  useMemo(() => {
+    setOpenSections(new Set(sections.map((_, i) => i)))
+  }, [activeDoc])
+
+  function toggle(i) {
+    setOpenSections(prev => {
+      const next = new Set(prev)
+      next.has(i) ? next.delete(i) : next.add(i)
+      return next
+    })
+  }
+
+  const mdComponents = useMdComponents()
+
   return (
     <div style={{
-      padding: '40px 60px 80px',
-      maxWidth: 900,
+      padding: '40px 48px 80px',
+      maxWidth: 1200,
       background: theme.pageBg,
       transition: 'background 0.2s',
       minHeight: '100vh',
     }}>
+      {/* Intro (h1 + lead text) — sempre visível */}
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {content}
+        {intro}
       </ReactMarkdown>
+
+      {/* Seções colapsáveis por h2 */}
+      {sections.map((section, i) => {
+        const isOpen = openSections.has(i)
+        return (
+          <div key={i} style={{ marginBottom: 2 }}>
+            {/* Header clicável */}
+            <button
+              onClick={() => toggle(i)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1px solid ${theme.border}`,
+                padding: '14px 0',
+                cursor: 'pointer',
+                marginTop: 20,
+                textAlign: 'left',
+              }}
+            >
+              <span style={{
+                fontSize: 16,
+                color: theme.textMuted,
+                flexShrink: 0,
+                transition: 'transform 0.2s, color 0.2s',
+                display: 'inline-block',
+                transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+                lineHeight: 1,
+              }}>
+                ▾
+              </span>
+              <h2 style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: theme.textPrimary,
+                margin: 0,
+                lineHeight: 1.3,
+                transition: 'color 0.2s',
+              }}>
+                {section.heading}
+              </h2>
+            </button>
+
+            {/* Conteúdo da seção */}
+            {isOpen && (
+              <div style={{ paddingTop: 8 }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {section.content.join('\n')}
+                </ReactMarkdown>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -57,19 +153,11 @@ function useMdComponents() {
         transition: 'color 0.2s, border-color 0.2s',
       }}>{children}</h1>
     ),
-    h2: ({ children }) => (
-      <h2 style={{
-        fontSize: 18, fontWeight: 700,
-        color: 'var(--textPrimary)',
-        marginTop: 40, marginBottom: 12, lineHeight: 1.3,
-        transition: 'color 0.2s',
-      }}>{children}</h2>
-    ),
     h3: ({ children }) => (
       <h3 style={{
         fontSize: 15, fontWeight: 600,
         color: 'var(--accentText)',
-        marginTop: 28, marginBottom: 8, lineHeight: 1.3,
+        marginTop: 24, marginBottom: 8, lineHeight: 1.3,
         transition: 'color 0.2s',
       }}>{children}</h3>
     ),
@@ -158,7 +246,7 @@ function useMdComponents() {
       }}>{children}</td>
     ),
     hr: () => (
-      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '32px 0', transition: 'border-color 0.2s' }} />
+      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '24px 0', transition: 'border-color 0.2s' }} />
     ),
     a: ({ href, children }) => (
       <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>

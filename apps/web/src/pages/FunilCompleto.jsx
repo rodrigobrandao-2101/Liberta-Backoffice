@@ -1,3 +1,4 @@
+import { useTheme } from '../ThemeContext.jsx'
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import {
@@ -17,24 +18,27 @@ const PIPES = [
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6']
 
 function KPICard({ label, value, sub }) {
+  const { theme } = useTheme()
   return (
-    <div style={{ background: '#1e2130', borderRadius: 12, padding: '20px 24px', flex: 1 }}>
-      <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9' }}>{value}</div>
-      {sub && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{sub}</div>}
+    <div style={{ background: theme.cardBg, borderRadius: 12, padding: '20px 24px', flex: 1 }}>
+      <div style={{ color: theme.textSecondary, fontSize: 13, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: theme.textPrimary }}>{value}</div>
+      {sub && <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
 
 function SectionTitle({ children }) {
+  const { theme } = useTheme()
   return (
-    <h2 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+    <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
       {children}
     </h2>
   )
 }
 
 export default function FunilCompleto() {
+  const { theme } = useTheme()
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [pipe, setPipe] = useState('all')
@@ -99,7 +103,7 @@ export default function FunilCompleto() {
   const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(n)
 
   const selectStyle = {
-    background: '#1e2130', border: '1px solid #2d3748', color: '#e2e8f0',
+    background: theme.cardBg, border: '1px solid #2d3748', color: theme.textPrimary,
     borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', cursor: 'pointer',
   }
 
@@ -108,8 +112,8 @@ export default function FunilCompleto() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Funil Completo</h1>
-          <p style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>Visão geral de todos os pipes</p>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary }}>Funil Completo</h1>
+          <p style={{ color: theme.textMuted, fontSize: 13, marginTop: 2 }}>Visão geral de todos os pipes</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <select value={pipe} onChange={e => setPipe(e.target.value)} style={selectStyle}>
@@ -120,7 +124,7 @@ export default function FunilCompleto() {
         </div>
       </div>
 
-      {loading && <div style={{ color: '#64748b', marginBottom: 24 }}>Carregando...</div>}
+      {loading && <div style={{ color: theme.textMuted, marginBottom: 24 }}>Carregando...</div>}
 
       {/* KPIs */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
@@ -133,25 +137,25 @@ export default function FunilCompleto() {
 
       {/* Charts row 1 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
           <SectionTitle>Entradas por Dia (últimos 14 dias)</SectionTitle>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={dailyData} barSize={20}>
-              <XAxis dataKey="date" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0' }} />
+              <XAxis dataKey="date" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <YAxis stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
               <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
           <SectionTitle>Eventos por Pipe</SectionTitle>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={pipeData} barSize={28}>
-              <XAxis dataKey="name" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0' }} />
+              <XAxis dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <YAxis stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                 {pipeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
@@ -162,25 +166,25 @@ export default function FunilCompleto() {
 
       {/* Charts row 2 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
           <SectionTitle>Top Fases por Volume</SectionTitle>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={phaseData} layout="vertical" barSize={14}>
-              <XAxis type="number" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 10 }} width={130} />
-              <Tooltip contentStyle={{ background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0' }} />
+              <XAxis type="number" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 10 }} width={130} />
+              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
               <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
           <SectionTitle>Tempo Médio por Fase (dias)</SectionTitle>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={durationData} layout="vertical" barSize={14}>
-              <XAxis type="number" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" stroke="#475569" tick={{ fill: '#94a3b8', fontSize: 10 }} width={130} />
-              <Tooltip contentStyle={{ background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0' }} />
+              <XAxis type="number" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 10 }} width={130} />
+              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
               <Bar dataKey="avg" fill="#10b981" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -188,29 +192,29 @@ export default function FunilCompleto() {
       </div>
 
       {/* Events table */}
-      <div style={{ background: '#1e2130', borderRadius: 12, padding: 24 }}>
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
         <SectionTitle>Últimos Eventos ({events.length})</SectionTitle>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #2d3748' }}>
                 {['Card', 'Pipe', 'Fase', 'Entrou', 'Saiu', 'Duração (dias)', 'Crédito', 'Pago'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: theme.textMuted, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {events.slice(0, 100).map(e => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #1a1f2e' }}>
-                  <td style={{ padding: '9px 12px', color: '#94a3b8', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.card_title}</td>
-                  <td style={{ padding: '9px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.pipe_name}</td>
-                  <td style={{ padding: '9px 12px', color: '#e2e8f0', whiteSpace: 'nowrap' }}>{e.phase_name}</td>
-                  <td style={{ padding: '9px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.entered_at?.slice(0, 10)}</td>
-                  <td style={{ padding: '9px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.exited_at?.slice(0, 10) || '—'}</td>
-                  <td style={{ padding: '9px 12px', color: '#94a3b8', textAlign: 'right' }}>
+                  <td style={{ padding: '9px 12px', color: theme.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.card_title}</td>
+                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.pipe_name}</td>
+                  <td style={{ padding: '9px 12px', color: theme.textPrimary, whiteSpace: 'nowrap' }}>{e.phase_name}</td>
+                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.entered_at?.slice(0, 10)}</td>
+                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.exited_at?.slice(0, 10) || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: theme.textSecondary, textAlign: 'right' }}>
                     {e.duration_minutes ? Math.round(e.duration_minutes / 60 / 24) : '—'}
                   </td>
-                  <td style={{ padding: '9px 12px', color: '#94a3b8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '9px 12px', color: theme.textSecondary, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {e.valor_credito ? fmt(e.valor_credito) : '—'}
                   </td>
                   <td style={{ padding: '9px 12px', color: '#10b981', textAlign: 'right', whiteSpace: 'nowrap' }}>
