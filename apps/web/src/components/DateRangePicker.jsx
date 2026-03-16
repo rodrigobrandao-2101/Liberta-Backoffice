@@ -11,6 +11,9 @@ const som = d => new Date(d.getFullYear(), d.getMonth(), 1)
 const eom = d => new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)
 const sameDay = (a, b) => a && b && a.toDateString() === b.toDateString()
 const inRange = (d, s, e) => d && s && e && d >= s && d <= e
+const prevMonth = ym => { const m = ym.m - 1; return m < 0 ? { y: ym.y - 1, m: 11 } : { y: ym.y, m } }
+const nextMonth = ym => { const m = ym.m + 1; return m > 11 ? { y: ym.y + 1, m: 0 } : { y: ym.y, m } }
+const monthsDiff = (s, e) => (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
 
 const PRESETS = [
   { label: 'Hoje', key: 'hoje' },
@@ -54,6 +57,33 @@ function calcRange(key) {
     case 'last-year': { const y = t.getFullYear() - 1; return [new Date(y, 0, 1), new Date(y, 11, 31, 23, 59, 59, 999)] }
     default: return [null, null]
   }
+}
+
+// Calcula leftYM e rightYM baseado nas datas selecionadas
+function calendarPositions(s, e) {
+  const today = new Date()
+  const todayYM = { y: today.getFullYear(), m: today.getMonth() }
+
+  if (!s && !e) {
+    return { left: prevMonth(todayYM), right: todayYM }
+  }
+  if (s && !e) {
+    const rightYM = { y: s.getFullYear(), m: s.getMonth() }
+    return { left: prevMonth(rightYM), right: rightYM }
+  }
+  // Temos s e e — right é sempre o mês da data final
+  const rightYM = { y: e.getFullYear(), m: e.getMonth() }
+  const diff = monthsDiff(s, e)
+  if (diff >= 1) {
+    // Meses diferentes: left=start month, right=end month (se consecutivos)
+    // Se range > 2 meses: left=mês anterior ao end, right=end
+    const leftYM = diff === 1
+      ? { y: s.getFullYear(), m: s.getMonth() }
+      : prevMonth(rightYM)
+    return { left: leftYM, right: rightYM }
+  }
+  // Mesmo mês: left=mês anterior, right=mês da data
+  return { left: prevMonth(rightYM), right: rightYM }
 }
 
 function daysGrid(year, month) {
@@ -108,6 +138,7 @@ function Cal({ title, ym, onNav, rangeStart, rangeEnd, selecting, hovered, onDay
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 32px)', justifyContent: 'center' }}>
         {grid.map((day, i) => {
           if (!day) return <div key={i} />
+          const isFuture = day > today
           const isToday = sameDay(day, today)
           const isStart = sameDay(day, effStart)
           const isEnd = sameDay(day, effEnd)
@@ -115,14 +146,15 @@ function Cal({ title, ym, onNav, rangeStart, rangeEnd, selecting, hovered, onDay
           return (
             <div
               key={i}
-              onClick={() => onDayClick(day)}
-              onMouseEnter={() => onDayHover(day)}
+              onClick={() => !isFuture && onDayClick(day)}
+              onMouseEnter={() => !isFuture && onDayHover(day)}
               style={{
                 textAlign: 'center', fontSize: 12, lineHeight: '28px', height: 28,
                 borderRadius: (isStart || isEnd) ? 14 : 0,
                 background: (isStart || isEnd) ? '#4f46e5' : (inR ? '#1e3a5f' : 'transparent'),
-                color: (isStart || isEnd) ? '#fff' : (isToday ? '#a5b4fc' : '#cbd5e1'),
-                cursor: 'pointer',
+                color: isFuture ? '#2d3748' : (isStart || isEnd) ? '#fff' : (isToday ? '#a5b4fc' : '#cbd5e1'),
+                cursor: isFuture ? 'default' : 'pointer',
+                opacity: isFuture ? 0.4 : 1,
                 outline: isToday && !(isStart || isEnd) ? '1px solid #4f46e5' : 'none',
                 outlineOffset: '-1px',
               }}
@@ -137,7 +169,6 @@ function Cal({ title, ym, onNav, rangeStart, rangeEnd, selecting, hovered, onDay
 }
 
 export default function DateRangePicker({ value, onChange }) {
-  const today = new Date()
   const [open, setOpen] = useState(false)
   const [presetOpen, setPresetOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
@@ -145,8 +176,16 @@ export default function DateRangePicker({ value, onChange }) {
   const [pEnd, setPEnd] = useState(value?.[1] ? new Date(value[1]) : null)
   const [selecting, setSelecting] = useState(false)
   const [hovered, setHovered] = useState(null)
-  const [leftYM, setLeftYM] = useState({ y: today.getFullYear(), m: today.getMonth() })
-  const [rightYM, setRightYM] = useState({ y: today.getFullYear(), m: (today.getMonth() + 1) % 12 })
+  const [leftYM, setLeftYM] = useState(() => {
+    const s = value?.[0] ? new Date(value[0]) : null
+    const e = value?.[1] ? new Date(value[1]) : null
+    return calendarPositions(s, e).left
+  })
+  const [rightYM, setRightYM] = useState(() => {
+    const s = value?.[0] ? new Date(value[0]) : null
+    const e = value?.[1] ? new Date(value[1]) : null
+    return calendarPositions(s, e).right
+  })
   const ref = useRef(null)
 
   useEffect(() => {
@@ -159,14 +198,35 @@ export default function DateRangePicker({ value, onChange }) {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
+  function openPicker() {
+    if (!open) {
+      // Ao abrir, posicionar os calendários baseado no valor atual
+      const s = value?.[0] ? new Date(value[0] + 'T00:00:00') : null
+      const e = value?.[1] ? new Date(value[1] + 'T00:00:00') : null
+      const pos = calendarPositions(s, e)
+      setLeftYM(pos.left)
+      setRightYM(pos.right)
+      setPStart(s)
+      setPEnd(e)
+      setSelecting(false)
+      setHovered(null)
+    }
+    setOpen(o => !o)
+    setPresetOpen(false)
+  }
+
   function applyPreset(key) {
     const [s, e] = calcRange(key)
     setPStart(s); setPEnd(e); setSelecting(false)
     setPresetOpen(false); setSubOpen(false)
-    if (s) setLeftYM({ y: s.getFullYear(), m: s.getMonth() })
+    const pos = calendarPositions(s, e)
+    setLeftYM(pos.left)
+    setRightYM(pos.right)
   }
 
   function handleDayClick(day) {
+    const today = sod(new Date())
+    if (day > today) return // bloquear datas futuras
     if (!selecting) {
       setPStart(sod(day)); setPEnd(null); setSelecting(true)
     } else {
@@ -177,10 +237,11 @@ export default function DateRangePicker({ value, onChange }) {
   }
 
   function handleApply() {
-    onChange([
-      pStart ? pStart.toISOString().slice(0, 10) : '',
-      pEnd ? pEnd.toISOString().slice(0, 10) : '',
-    ])
+    const toLocalISO = d => {
+      if (!d) return ''
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    onChange([toLocalISO(pStart), toLocalISO(pEnd)])
     setOpen(false); setPresetOpen(false)
   }
 
@@ -191,17 +252,12 @@ export default function DateRangePicker({ value, onChange }) {
   }
 
   function navCal(side, dir) {
-    const fn = prev => {
-      let m = prev.m + dir, y = prev.y
-      if (m > 11) { m = 0; y++ }
-      if (m < 0) { m = 11; y-- }
-      return { y, m }
-    }
+    const fn = prev => dir === 1 ? nextMonth(prev) : prevMonth(prev)
     if (side === 'L') setLeftYM(fn); else setRightYM(fn)
   }
 
-  const dispStart = value?.[0] ? new Date(value[0]) : null
-  const dispEnd = value?.[1] ? new Date(value[1]) : null
+  const dispStart = value?.[0] ? new Date(value[0] + 'T00:00:00') : null
+  const dispEnd = value?.[1] ? new Date(value[1] + 'T00:00:00') : null
 
   const menuItemStyle = {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -212,7 +268,7 @@ export default function DateRangePicker({ value, onChange }) {
   return (
     <div ref={ref} style={{ position: 'relative', userSelect: 'none' }}>
       <button
-        onClick={() => { setOpen(o => !o); setPresetOpen(false) }}
+        onClick={openPicker}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           background: open ? '#252b3d' : '#1e2130',

@@ -4,19 +4,26 @@ import { supabase } from '../supabase'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, PieChart, Pie } from 'recharts'
 import DateRangePicker from '../components/DateRangePicker'
 
-const USE_MOCK = true
+const USE_MOCK = false
 
 const ACTIVE_PHASES = [
   'BACKLOG - COMERCIAL',
-  'CLIENTE - STAND BY',
+  'CLIENTE - APROVAÇÃO',
   'FORMULAÇÃO - PROPOSTA INICIAL',
   'APRESENTAÇÃO - PROPOSTA INICIAL',
   'AGUARDANDO DOCUMENTAÇÃO',
   'ENVIADO PARA COMPLIANCE - DUE',
+  'COLETA DOCUMENTAL PARA RE-DUE',
+  'ENVIADO PARA RE-DUE',
+  'AGUARDANDO ANÁLISE JURÍDICA',
   'ANÁLISE JURÍDICA CONCLUÍDA',
   'ARREMATE COMERCIAL',
-  'CONTRATO ENVIADO PARA ASSINATURA',
+  'ELABORAÇÃO DO CONTRATO',
+  'VALIDAÇÃO DO CONTRATO',
+  'AGUARDANDO ASSINATURA',
   'CARTÓRIO EM AGENDAMENTO',
+  'CARTÓRIO EM ANDAMENTO',
+  'CARTÓRIO CONCLUÍDO',
   'AGUARDANDO PARA ANEXO NOS AUTOS',
   'ANEXADO NOS AUTOS',
 ]
@@ -28,10 +35,23 @@ const LOST_PHASES = [
   'PERDIDO - DUE INCONSISTENTE',
 ]
 
+// Fases que qualificam um card como "Proposta Arrematada" (pós-arremate, pré-Anexado)
+const ARREMATADAS_PHASES = [
+  'ELABORAÇÃO DO CONTRATO',
+  'VALIDAÇÃO DO CONTRATO',
+  'AGUARDANDO ASSINATURA',
+  'CARTÓRIO EM AGENDAMENTO',
+  'CARTÓRIO EM ANDAMENTO',
+  'CARTÓRIO CONCLUÍDO',
+  'AGUARDANDO PARA ANEXO NOS AUTOS',
+]
+
 const PHASE_COLORS = [
-  '#475569', '#64748b', '#6366f1', '#8b5cf6',
-  '#f59e0b', '#f97316', '#06b6d4', '#3b82f6',
+  '#475569', '#64748b', '#6366f1', '#7c3aed',
+  '#f59e0b', '#f97316', '#fb923c', '#f43f5e',
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#8b5cf6',
   '#10b981', '#14b8a6', '#84cc16', '#22c55e',
+  '#a3e635', '#4ade80', '#34d399',
 ]
 
 function generateMock() {
@@ -146,7 +166,11 @@ function generateMock() {
 }
 
 const fmt = n => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(n)
-const fmtK = n => n >= 1000000 ? `R$ ${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `R$ ${(n / 1000).toFixed(0)}K` : fmt(n)
+const fmtK = fmt
+
+// Pipefy retorna strings ("Sim"/"Não") — mock usa boolean. Normalizar os dois.
+const isSim = v => v === true || (typeof v === 'string' && /^s(im)?$/i.test(v.trim()))
+const isNao = v => v === false || (typeof v === 'string' && /^n(ão|ao)?$/i.test(v.trim()))
 
 function KPICard({ label, value, sub, accent }) {
   const { theme } = useTheme()
@@ -168,12 +192,31 @@ function SectionTitle({ children }) {
 export default function Comercial() {
   const { theme } = useTheme()
   const ttStyle = { background: theme.cardBg, border: `1px solid ${theme.border}`, color: theme.textPrimary, fontSize: 12 }
-  const [dateRange, setDateRange] = useState(['', ''])
+  const [dateRange, setDateRange] = useState(() => { const end = new Date(); const start = new Date(); start.setDate(end.getDate() - 14); return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)] })
   const [events, setEvents] = useState([])
-  const [sdrQualificados, setSdrQualificados] = useState(0)
+  const [sdrRawEvents, setSdrRawEvents] = useState([])
+  const [sdrMockCount, setSdrMockCount] = useState(null)
   const [loading, setLoading] = useState(true)
   const [durSortByTime, setDurSortByTime] = useState(false)
   const [tablePhaseFilter, setTablePhaseFilter] = useState('all')
+  const [hideTest, setHideTest] = useState(true)
+  const [funnelDrill, setFunnelDrill] = useState(null)          // label da fase expandida
+  const [funnelExclusions, setFunnelExclusions] = useState(() => {
+    try {
+      const saved = localStorage.getItem('funnel_exclusions_comercial')
+      if (!saved) return {}
+      const parsed = JSON.parse(saved)
+      return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, new Set(v)]))
+    } catch { return {} }
+  })
+  const [cardHistory, setCardHistory] = useState(null)          // { cardId, title }
+
+  useEffect(() => {
+    try {
+      const serializable = Object.fromEntries(Object.entries(funnelExclusions).map(([k, v]) => [k, [...v]]))
+      localStorage.setItem('funnel_exclusions_comercial', JSON.stringify(serializable))
+    } catch {}
+  }, [funnelExclusions])
 
   useEffect(() => { fetchData() }, [dateRange])
 
@@ -185,36 +228,62 @@ export default function Comercial() {
       if (dateRange[1]) mock = mock.filter(e => e.entered_at <= dateRange[1] + 'T23:59:59')
       setEvents(mock)
       // Mock: ~2.5x o total no backlog chegou como qualificados no SDR
-      setSdrQualificados(Math.round(mock.filter(e => e.phase_name === 'BACKLOG - COMERCIAL').length * 2.5))
+      setSdrMockCount(Math.round(mock.filter(e => e.phase_name === 'BACKLOG - COMERCIAL').length * 2.5))
+      setSdrRawEvents([])
       setLoading(false)
       return
     }
+    setSdrMockCount(null)
     const [comRes, sdrRes] = await Promise.all([
-      supabase.from('pipeline_events').select('*').eq('pipe_name', 'COMERCIAL').order('entered_at', { ascending: true })
+      supabase.from('comercial_events').select('*').eq('is_deleted', false).order('entered_at', { ascending: true })
         .gte('entered_at', dateRange[0] || '2000-01-01')
         .lte('entered_at', (dateRange[1] || '2099-12-31') + 'T23:59:59')
         .limit(10000),
-      supabase.from('pipeline_events').select('card_id').eq('pipe_name', 'SDR-COMERCIAL').eq('phase_name', 'QUALIFICADO')
+      supabase.from('sdr_events').select('card_id, is_test, nome_completo, card_title').eq('is_deleted', false).eq('phase_name', 'QUALIFICADO')
         .gte('entered_at', dateRange[0] || '2000-01-01')
         .lte('entered_at', (dateRange[1] || '2099-12-31') + 'T23:59:59')
         .limit(10000),
     ])
-    setEvents(comRes.data || [])
-    const uniqSdr = new Set((sdrRes.data || []).map(e => e.card_id)).size
-    setSdrQualificados(uniqSdr)
+    // Normalizar: valor_credito_considerado → valor_credito (nome usado nos cálculos)
+    setEvents((comRes.data || []).map(e => ({ ...e, valor_credito: e.valor_credito_considerado ?? e.valor_credito })))
+    setSdrRawEvents(sdrRes.data || [])
     setLoading(false)
   }
 
+  // ── Filtro de cards de teste ──────────────────────────────────────────────
+  const visibleEvents = hideTest
+    ? events.filter(e => !e.is_test && !(e.card_title || '').toLowerCase().includes('[teste]'))
+    : events
+
+  // ── SDR qualificados (respeita hideTest) ──────────────────────────────────
+  const sdrQualificados = sdrMockCount != null
+    ? sdrMockCount
+    : (() => {
+        const arr = hideTest
+          ? sdrRawEvents.filter(e => !e.is_test && !(e.card_title || '').toLowerCase().includes('[teste]') && !(e.nome_completo || '').toLowerCase().includes('[teste]'))
+          : sdrRawEvents
+        return new Set(arr.map(e => e.card_id)).size
+      })()
+
   // ── SDR → Backlog funnel ──────────────────────────────────────────────────
-  const noBacklog = new Set(events.filter(e => e.phase_name === 'BACKLOG - COMERCIAL').map(e => e.card_id)).size
+  const noBacklog = new Set(visibleEvents.filter(e => e.phase_name === 'BACKLOG - COMERCIAL').map(e => e.card_id)).size
   const taxaSDRtoComercial = sdrQualificados > 0 ? Math.round(noBacklog / sdrQualificados * 100) : 0
 
-  // ── Current phase per card (latest entered_at) ────────────────────────────
+  // ── Current phase per card — preferir exited_at=null (fase ativa) ──────────
   const latestEvent = {}
   const firstEntryByCard = {}
-  events.forEach(e => {
-    if (!latestEvent[e.card_id] || e.entered_at > latestEvent[e.card_id].entered_at) {
+  visibleEvents.forEach(e => {
+    const cur = latestEvent[e.card_id]
+    if (!cur) {
       latestEvent[e.card_id] = e
+    } else {
+      const eCurrent = !e.exited_at
+      const curCurrent = !cur.exited_at
+      if (eCurrent && !curCurrent) {
+        latestEvent[e.card_id] = e           // e é fase ativa, substituir
+      } else if (eCurrent === curCurrent && e.entered_at > cur.entered_at) {
+        latestEvent[e.card_id] = e           // mesmo status, pegar mais recente
+      }
     }
     if (!firstEntryByCard[e.card_id] || e.entered_at < firstEntryByCard[e.card_id]) {
       firstEntryByCard[e.card_id] = e.entered_at
@@ -226,13 +295,13 @@ export default function Comercial() {
   const total       = latestEvents.length
   const fechados    = latestEvents.filter(e => e.phase_name === 'ANEXADO NOS AUTOS').length
   const perdidos    = latestEvents.filter(e => LOST_PHASES.includes(e.phase_name)).length
-  const standBy     = latestEvents.filter(e => e.phase_name === 'CLIENTE - STAND BY').length
+  const standBy     = latestEvents.filter(e => e.phase_name === 'CLIENTE - APROVAÇÃO').length
   const emAndamento = total - fechados - perdidos - standBy
   const taxaFechamento = total > 0 ? Math.round(fechados / total * 100) : 0
 
   // Financial — pick max per card
   const creditByCard = {}, proposalByCard = {}, finalByCard = {}, renegByCard = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     if (e.valor_credito) creditByCard[e.card_id] = Math.max(creditByCard[e.card_id] || 0, e.valor_credito)
     if (e.valor_proposta_cliente) proposalByCard[e.card_id] = Math.max(proposalByCard[e.card_id] || 0, e.valor_proposta_cliente)
     if (e.valor_final_proposta) finalByCard[e.card_id] = Math.max(finalByCard[e.card_id] || 0, e.valor_final_proposta)
@@ -241,20 +310,24 @@ export default function Comercial() {
   const volCredito  = Object.values(creditByCard).reduce((s, v) => s + v, 0)
   // Crédito considerado = crédito dos cards que chegaram na fase de formulação (têm proposta)
   const creditConsiderado = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     if (e.valor_proposta_cliente && e.valor_credito)
       creditConsiderado[e.card_id] = Math.max(creditConsiderado[e.card_id] || 0, e.valor_credito)
   })
   const volCreditoConsiderado = Object.values(creditConsiderado).reduce((s, v) => s + v, 0)
   const volProposta = Object.values(proposalByCard).reduce((s, v) => s + v, 0)
-  const volFechado  = Object.values(finalByCard).reduce((s, v) => s + v, 0)
+  // Propostas Arrematadas: somente cards cuja fase atual é pós-Arremate e pré-Anexado (não perdidos)
+  const arrematadosCards = latestEvents.filter(e => ARREMATADAS_PHASES.includes(e.phase_name))
+  const volFechado  = arrematadosCards.reduce((s, e) => s + (finalByCard[e.card_id] || 0), 0)
+  const nArrematados = arrematadosCards.length
+  // Compra Efetiva: somente ANEXADO NOS AUTOS
   const volFinalFechados = latestEvents
     .filter(e => e.phase_name === 'ANEXADO NOS AUTOS')
     .reduce((s, e) => s + (finalByCard[e.card_id] || 0), 0)
   const ticketMedio = fechados > 0 ? volFinalFechados / fechados : 0
 
   // ── APRESENTAÇÃO - PROPOSTA INICIAL analytics ────────────────────────────
-  const apresentEvents = events.filter(e => e.phase_name === 'APRESENTAÇÃO - PROPOSTA INICIAL')
+  const apresentEvents = visibleEvents.filter(e => e.phase_name === 'APRESENTAÇÃO - PROPOSTA INICIAL')
   const apresentByCard = {}
   apresentEvents.forEach(e => {
     if (!apresentByCard[e.card_id] || e.entered_at > apresentByCard[e.card_id].entered_at)
@@ -268,8 +341,8 @@ export default function Comercial() {
   const decInseguro = apresentData.filter(e => e.cliente_aceitou_proposta_inicial?.includes('INSEGURO')).length
 
   const inseguroCards = apresentData.filter(e => e.cliente_aceitou_proposta_inicial?.includes('INSEGURO'))
-  const negSim = inseguroCards.filter(e => e.conseguiu_negociar === true).length
-  const negNao = inseguroCards.filter(e => e.conseguiu_negociar === false).length
+  const negSim = inseguroCards.filter(e => isSim(e.conseguiu_negociar)).length
+  const negNao = inseguroCards.filter(e => isNao(e.conseguiu_negociar)).length
 
   const motivoMap = {}
   inseguroCards.forEach(e => {
@@ -277,7 +350,7 @@ export default function Comercial() {
   })
   const motivoData = Object.entries(motivoMap).sort((a, b) => b[1] - a[1]).slice(0, 4)
 
-  const descontoVals = inseguroCards.filter(e => e.conseguiu_negociar && e.valor_proposta_cliente > 0 && e.valor_renegociado > 0)
+  const descontoVals = inseguroCards.filter(e => isSim(e.conseguiu_negociar) && e.valor_proposta_cliente > 0 && e.valor_renegociado > 0)
   const descontoMedio = descontoVals.length > 0
     ? descontoVals.reduce((s, e) => s + (e.valor_proposta_cliente - e.valor_renegociado) / e.valor_proposta_cliente * 100, 0) / descontoVals.length
     : null
@@ -287,15 +360,15 @@ export default function Comercial() {
   const rentPosVals = apresentData.filter(e => e.rentabilidade_pos_renegociacao > 0)
   const rentPosMedia = rentPosVals.length > 0 ? rentPosVals.reduce((s, e) => s + e.rentabilidade_pos_renegociacao, 0) / rentPosVals.length : null
 
-  const jaSimCount = apresentData.filter(e => e.ja_recebeu_proposta === true).length
-  const jaNaoCount = apresentData.filter(e => e.ja_recebeu_proposta === false).length
+  const jaSimCount = apresentData.filter(e => isSim(e.ja_recebeu_proposta)).length
+  const jaNaoCount = apresentData.filter(e => isNao(e.ja_recebeu_proposta)).length
   const valorDesejadoList = apresentData.filter(e => e.valor_desejado_cliente > 0)
   const valorDesejadoMedio = valorDesejadoList.length > 0 ? valorDesejadoList.reduce((s, e) => s + e.valor_desejado_cliente, 0) / valorDesejadoList.length : null
   const propMediaList = apresentData.filter(e => e.valor_proposta_cliente > 0)
   const propMedia = propMediaList.length > 0 ? propMediaList.reduce((s, e) => s + e.valor_proposta_cliente, 0) / propMediaList.length : null
 
   // ── ARREMATE COMERCIAL analytics ─────────────────────────────────────────
-  const arrEvents = events.filter(e => e.phase_name === 'ARREMATE COMERCIAL')
+  const arrEvents = visibleEvents.filter(e => e.phase_name === 'ARREMATE COMERCIAL')
   const arrByCard = {}
   arrEvents.forEach(e => {
     if (!arrByCard[e.card_id] || e.entered_at > arrByCard[e.card_id].entered_at)
@@ -304,11 +377,11 @@ export default function Comercial() {
   const arrData = Object.values(arrByCard)
   const nArremate = arrData.length
 
-  const arrAlterada    = arrData.filter(e => e.proposta_alterada === true).length
-  const arrNaoAlterada = arrData.filter(e => e.proposta_alterada === false).length
-  const arrAlteradaCards = arrData.filter(e => e.proposta_alterada === true)
-  const arrAceitouCorrigida    = arrAlteradaCards.filter(e => e.cliente_aceitou_proposta_corrigida === true).length
-  const arrNaoAceitouCorrigida = arrAlteradaCards.filter(e => e.cliente_aceitou_proposta_corrigida === false).length
+  const arrAlterada    = arrData.filter(e => isSim(e.proposta_alterada)).length
+  const arrNaoAlterada = arrData.filter(e => isNao(e.proposta_alterada)).length
+  const arrAlteradaCards = arrData.filter(e => isSim(e.proposta_alterada))
+  const arrAceitouCorrigida    = arrAlteradaCards.filter(e => isSim(e.cliente_aceitou_proposta_corrigida)).length
+  const arrNaoAceitouCorrigida = arrAlteradaCards.filter(e => isNao(e.cliente_aceitou_proposta_corrigida)).length
 
   // Comparação: valor_final_proposta vs base (renegociado se existir, senão proposta_cliente)
   const arrDeltaVals = arrData.filter(e => {
@@ -345,29 +418,59 @@ export default function Comercial() {
 
   // ── Historical throughput funnel (cards that ever passed through each phase) ─
   const throughputMap = {}
-  events.forEach(e => {
+  const cardTitleMap = {}
+  visibleEvents.forEach(e => {
     if (!throughputMap[e.phase_name]) throughputMap[e.phase_name] = new Set()
     throughputMap[e.phase_name].add(e.card_id)
+    if (!cardTitleMap[e.card_id]) cardTitleMap[e.card_id] = e.card_title
   })
+
+  // SDR cards for drill-down (prioriza nome_completo)
+  const sdrFilteredForDrill = hideTest
+    ? sdrRawEvents.filter(e => !e.is_test && !(e.card_title || '').toLowerCase().includes('[teste]') && !(e.nome_completo || '').toLowerCase().includes('[teste]'))
+    : sdrRawEvents
+  const sdrDrillCards = [...new Map(sdrFilteredForDrill.map(e => [e.card_id, { id: e.card_id, title: e.nome_completo || e.card_title || e.card_id }])).values()]
+
+  // Helper: cards de uma fase do funil
+  function funnelStepCards(phaseName) {
+    if (!phaseName) return sdrDrillCards
+    const ids = throughputMap[phaseName]
+    if (!ids) return []
+    return [...ids].map(id => ({ id, title: cardTitleMap[id] || id }))
+  }
+  function funnelStepCount(label, phaseName) {
+    const excl = funnelExclusions[label]
+    const cards = funnelStepCards(phaseName)
+    if (!excl) return cards.length
+    return cards.filter(c => !excl.has(c.id)).length
+  }
+  function toggleExclusion(label, cardId) {
+    setFunnelExclusions(prev => {
+      const s = new Set(prev[label] || [])
+      if (s.has(cardId)) s.delete(cardId); else s.add(cardId)
+      return { ...prev, [label]: s }
+    })
+  }
+
   const FUNNEL_STEPS = [
-    { label: 'Leads Qualificados (SDR)', count: sdrQualificados, color: '#8b5cf6' },
-    { label: 'Backlog Comercial',        count: throughputMap['BACKLOG - COMERCIAL']?.size || 0, color: '#7c3aed' },
-    { label: 'Cliente - Stand By',       count: throughputMap['CLIENTE - STAND BY']?.size || 0, color: '#6366f1' },
-    { label: 'Formulação - Proposta',    count: throughputMap['FORMULAÇÃO - PROPOSTA INICIAL']?.size || 0, color: '#4f46e5' },
-    { label: 'Apresentação - Proposta',  count: throughputMap['APRESENTAÇÃO - PROPOSTA INICIAL']?.size || 0, color: '#3b82f6' },
-    { label: 'Aguardando Documentação',  count: throughputMap['AGUARDANDO DOCUMENTAÇÃO']?.size || 0, color: '#0ea5e9' },
-    { label: 'Compliance - DUE',         count: throughputMap['ENVIADO PARA COMPLIANCE - DUE']?.size || 0, color: '#06b6d4' },
-    { label: 'Análise Jurídica',         count: throughputMap['ANÁLISE JURÍDICA CONCLUÍDA']?.size || 0, color: '#14b8a6' },
-    { label: 'Arremate Comercial',       count: throughputMap['ARREMATE COMERCIAL']?.size || 0, color: '#10b981' },
-    { label: 'Contrato Assinatura',      count: throughputMap['CONTRATO ENVIADO PARA ASSINATURA']?.size || 0, color: '#22c55e' },
-    { label: 'Cartório',                 count: throughputMap['CARTÓRIO EM AGENDAMENTO']?.size || 0, color: '#84cc16' },
-    { label: 'Aguardando Anexo',         count: throughputMap['AGUARDANDO PARA ANEXO NOS AUTOS']?.size || 0, color: '#a3e635' },
-    { label: 'Anexado nos Autos',        count: throughputMap['ANEXADO NOS AUTOS']?.size || 0, color: '#f59e0b' },
-  ]
+    { label: 'Backlog Comercial',        phaseName: 'BACKLOG - COMERCIAL',             color: '#7c3aed' },
+    { label: 'Cliente - Aprovação',      phaseName: 'CLIENTE - APROVAÇÃO',             color: '#6366f1' },
+    { label: 'Formulação - Proposta',    phaseName: 'FORMULAÇÃO - PROPOSTA INICIAL',   color: '#4f46e5' },
+    { label: 'Apresentação - Proposta',  phaseName: 'APRESENTAÇÃO - PROPOSTA INICIAL', color: '#3b82f6' },
+    { label: 'Aguardando Documentação',  phaseName: 'AGUARDANDO DOCUMENTAÇÃO',         color: '#0ea5e9' },
+    { label: 'Compliance - DUE',         phaseName: 'ENVIADO PARA COMPLIANCE - DUE',   color: '#06b6d4' },
+    { label: 'Ag. Análise Jurídica',     phaseName: 'AGUARDANDO ANÁLISE JURÍDICA',     color: '#0284c7' },
+    { label: 'Análise Jurídica',         phaseName: 'ANÁLISE JURÍDICA CONCLUÍDA',      color: '#14b8a6' },
+    { label: 'Arremate Comercial',       phaseName: 'ARREMATE COMERCIAL',              color: '#10b981' },
+    { label: 'Validação Contrato',       phaseName: 'VALIDAÇÃO DO CONTRATO',           color: '#22c55e' },
+    { label: 'Cartório',                 phaseName: 'CARTÓRIO EM AGENDAMENTO',         color: '#84cc16' },
+    { label: 'Aguardando Anexo',         phaseName: 'AGUARDANDO PARA ANEXO NOS AUTOS', color: '#a3e635' },
+    { label: 'Anexado nos Autos',        phaseName: 'ANEXADO NOS AUTOS',               color: '#f59e0b' },
+  ].map(s => ({ ...s, count: funnelStepCount(s.label, s.phaseName) }))
 
   // ── Daily entries ─────────────────────────────────────────────────────────
   const dailyMap = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     const day = e.entered_at?.slice(0, 10)
     if (day && !LOST_PHASES.includes(e.phase_name)) dailyMap[day] = (dailyMap[day] || 0) + 1
   })
@@ -377,7 +480,7 @@ export default function Comercial() {
 
   // ── Avg duration per phase ────────────────────────────────────────────────
   const durMap = {}, durCount = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     if (e.duration_minutes > 0) {
       durMap[e.phase_name] = (durMap[e.phase_name] || 0) + e.duration_minutes
       durCount[e.phase_name] = (durCount[e.phase_name] || 0) + 1
@@ -399,20 +502,26 @@ export default function Comercial() {
 
   // ── Phase transition times ────────────────────────────────────────────────
   const cardPhaseEntry = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     if (!cardPhaseEntry[e.card_id]) cardPhaseEntry[e.card_id] = {}
     if (!cardPhaseEntry[e.card_id][e.phase_name] || e.entered_at < cardPhaseEntry[e.card_id][e.phase_name])
       cardPhaseEntry[e.card_id][e.phase_name] = e.entered_at
   })
-  function avgDays(fromPhase, toPhase) {
+  function avgHours(fromPhase, toPhase) {
     const diffs = []
     Object.values(cardPhaseEntry).forEach(phases => {
       if (phases[fromPhase] && phases[toPhase]) {
-        const diff = (new Date(phases[toPhase]) - new Date(phases[fromPhase])) / 86400000
+        const diff = (new Date(phases[toPhase]) - new Date(phases[fromPhase])) / 3600000
         if (diff > 0) diffs.push(diff)
       }
     })
-    return diffs.length > 0 ? Math.round(diffs.reduce((s, v) => s + v, 0) / diffs.length) : null
+    return diffs.length > 0 ? diffs.reduce((s, v) => s + v, 0) / diffs.length : null
+  }
+  function fmtHours(h) {
+    if (h == null) return '—'
+    const hrs = Math.round(h)
+    const days = (h / 24).toFixed(1)
+    return `${hrs}h (${days}d)`
   }
   const TRANSITIONS = [
     { label: 'Backlog → Formulação',       from: 'BACKLOG - COMERCIAL',                  to: 'FORMULAÇÃO - PROPOSTA INICIAL' },
@@ -424,7 +533,7 @@ export default function Comercial() {
     { label: null },
     { label: 'Backlog → Anexado (total)',  from: 'BACKLOG - COMERCIAL',                   to: 'ANEXADO NOS AUTOS', summary: true },
     { label: 'Apresentação → Anexado',     from: 'APRESENTAÇÃO - PROPOSTA INICIAL',       to: 'ANEXADO NOS AUTOS', summary: true },
-  ].map(t => t.label === null ? t : { ...t, dias: avgDays(t.from, t.to) })
+  ].map(t => t.label === null ? t : { ...t, horas: avgHours(t.from, t.to) })
 
   // ── Recent deals table ────────────────────────────────────────────────────
   const recentDeals = latestEvents
@@ -471,7 +580,13 @@ export default function Comercial() {
           <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary, marginBottom: 4 }}>Comercial</h1>
           <p style={{ color: theme.textMuted, fontSize: 13 }}>Negociação e propostas — pipe COMERCIAL</p>
         </div>
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setHideTest(h => !h)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${theme.border}`, background: hideTest ? theme.cardBg : '#fef3c7', color: hideTest ? theme.textMuted : '#92400e', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: hideTest ? theme.textFaint : '#f59e0b', display: 'inline-block' }} />
+            {hideTest ? 'Ocultar testes' : 'Ver testes'}
+          </button>
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+        </div>
       </div>
 
       {loading && <div style={{ color: theme.textMuted, marginBottom: 24 }}>Carregando...</div>}
@@ -508,7 +623,7 @@ export default function Comercial() {
       <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
         <KPICard label="Total de Negociações" value={total} sub="cards únicos no período" accent="#6366f1" />
         <KPICard label="Em Andamento" value={emAndamento} sub="fases ativas" accent="#3b82f6" />
-        <KPICard label="Cliente - Stand By" value={standBy} sub="aguardando homologação" accent="#64748b" />
+        <KPICard label="Cliente - Aprovação" value={standBy} sub="aguardando aprovação" accent="#64748b" />
         <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, minWidth: 0, borderTop: '3px solid #ef4444' }}>
           <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>Perdidos</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
@@ -591,15 +706,15 @@ export default function Comercial() {
         <div style={{ background: theme.cardBg, borderRadius: 12, padding: '18px 22px', flex: 1, borderTop: '3px solid #f59e0b' }}>
           <div style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 8 }}>Propostas Arrematadas</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{fmtK(volFechado)}</div>
-          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>volume total</div>
+          <div style={{ color: theme.textMuted, fontSize: 11, marginTop: 2, marginBottom: 10 }}>pós-arremate, aguardando anexo</div>
           <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #2d3748', paddingTop: 10 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{Object.values(finalByCard).length}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{nArrematados}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>deals</div>
             </div>
             <div style={{ width: 1, background: theme.border, margin: '0 12px' }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{Object.values(finalByCard).length > 0 ? fmtK(volFechado / Object.values(finalByCard).length) : '—'}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>{nArrematados > 0 ? fmtK(volFechado / nArrematados) : '—'}</div>
               <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>valor médio / deal</div>
             </div>
           </div>
@@ -623,38 +738,6 @@ export default function Comercial() {
       </div>
 
 
-      {/* ── Conversão de Volume ── */}
-      {(() => {
-        const tx0 = volCredito            > 0 ? Math.round(volCreditoConsiderado / volCredito            * 100) : 0
-        const tx1 = volCreditoConsiderado > 0 ? Math.round(volProposta           / volCreditoConsiderado * 100) : 0
-        const tx2 = volProposta           > 0 ? Math.round(volFechado            / volProposta           * 100) : 0
-        const tx3 = volFechado            > 0 ? Math.round(volFinalFechados      / volFechado            * 100) : 0
-        const items = [
-          { label: 'Volume de Crédito → Crédito Considerado', from: volCredito,            to: volCreditoConsiderado, pct: tx0, color: '#8b5cf6' },
-          { label: 'Crédito Considerado → Propostas',         from: volCreditoConsiderado, to: volProposta,           pct: tx1, color: '#6366f1' },
-          { label: 'Propostas → Arremates',                   from: volProposta,           to: volFechado,            pct: tx2, color: '#f59e0b' },
-          { label: 'Arremates → Concluídas',                  from: volFechado,            to: volFinalFechados,      pct: tx3, color: '#22c55e' },
-        ]
-        return (
-          <div style={{ background: theme.cardBg, borderRadius: 12, padding: '8px 20px', marginBottom: 14 }}>
-            <div style={{ color: '#475569', fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Conversão de Volume</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-              {items.map((item, i) => (
-                <div key={i} style={{ paddingLeft: i > 0 ? 20 : 0, paddingRight: i < 3 ? 20 : 0, borderLeft: i > 0 ? '1px solid #2d3748' : 'none' }}>
-                  <div style={{ fontSize: 10, color: theme.textMuted, marginBottom: 3 }}>{item.label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.pct}%</div>
-                  <div style={{ height: 3, background: theme.cardBg2, borderRadius: 2, overflow: 'hidden', marginBottom: 3 }}>
-                    <div style={{ height: '100%', width: `${Math.min(item.pct, 100)}%`, background: item.color, borderRadius: 2, transition: 'width 0.6s ease' }} />
-                  </div>
-                  <div style={{ fontSize: 10, color: '#475569' }}>
-                    {fmtK(item.from)} <span style={{ color: '#334155', margin: '0 4px' }}>→</span> {fmtK(item.to)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })()}
 
       {/* ── APRESENTAÇÃO - PROPOSTA INICIAL ── */}
       {nApresent > 0 && (
@@ -944,32 +1027,81 @@ export default function Comercial() {
             const prev = i > 0 ? FUNNEL_STEPS[i - 1].count : null
             const conv = prev != null && prev > 0 ? Math.round(step.count / prev * 100) : null
             const convColor = conv == null ? '#475569' : conv >= 70 ? '#22c55e' : conv >= 40 ? '#f59e0b' : '#ef4444'
+            const isOpen = funnelDrill === step.label
+            const drillCards = funnelStepCards(step.phaseName)
+            const excl = funnelExclusions[step.label] || new Set()
             return (
-              <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minHeight: 22 }}>
-                {/* Label fixo à esquerda */}
-                <div style={{ width: 140, flexShrink: 0, fontSize: 9, color: theme.textSecondary, textAlign: 'right', lineHeight: 1.3 }}>
-                  {step.label}
-                </div>
-                {/* Área do funil centralizada */}
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'stretch', height: '100%' }}>
-                  <div style={{
-                    width: `${widthPct}%`,
-                    background: step.color,
-                    borderRadius: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    paddingRight: 8,
-                    minHeight: 22,
-                    transition: 'width 0.6s ease',
-                  }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>{step.count}</span>
+              <div key={i}>
+                <div
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minHeight: 22, cursor: 'pointer' }}
+                  onClick={() => setFunnelDrill(v => v === step.label ? null : step.label)}
+                >
+                  {/* Label */}
+                  <div style={{ width: 140, flexShrink: 0, fontSize: 9, color: isOpen ? step.color : theme.textSecondary, textAlign: 'right', lineHeight: 1.3, fontWeight: isOpen ? 700 : 400 }}>
+                    {step.label}
+                  </div>
+                  {/* Barra */}
+                  <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'stretch', height: '100%' }}>
+                    <div style={{ width: `${widthPct}%`, background: step.color, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 8, minHeight: 22, transition: 'width 0.6s ease', opacity: isOpen ? 1 : 0.85 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>{step.count}</span>
+                    </div>
+                  </div>
+                  {/* Conv % */}
+                  <div style={{ width: 38, flexShrink: 0, fontSize: 10, fontWeight: 600, color: convColor, textAlign: 'left' }}>
+                    {conv != null ? `↓${conv}%` : ''}
                   </div>
                 </div>
-                {/* Conversão % */}
-                <div style={{ width: 38, flexShrink: 0, fontSize: 10, fontWeight: 600, color: convColor, textAlign: 'left' }}>
-                  {conv != null ? `↓${conv}%` : ''}
-                </div>
+                {/* Drill-down */}
+                {isOpen && (() => {
+                  const nextStep = FUNNEL_STEPS[i + 1]
+                  const nextIds = nextStep?.phaseName ? throughputMap[nextStep.phaseName] : null
+                  return (
+                    <div style={{ marginLeft: 148, marginRight: 46, marginBottom: 6, background: '#0f1420', borderRadius: 8, padding: '10px 12px', border: `1px solid ${step.color}44` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {drillCards.length} cards {nextIds ? '— 🟢 avançou · 🔴 não avançou' : ''}
+                        </div>
+                        {excl.size > 0 && (
+                          <span onClick={e => { e.stopPropagation(); setFunnelExclusions(p => ({ ...p, [step.label]: new Set() })) }} style={{ fontSize: 10, color: '#475569', cursor: 'pointer', textDecoration: 'underline' }}>
+                            limpar {excl.size} exclusão{excl.size > 1 ? 'ões' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {drillCards.map(c => {
+                          const isExcluded = excl.has(c.id)
+                          const advanced = nextIds ? nextIds.has(c.id) : null
+                          const borderColor = isExcluded ? '#7f1d1d' : advanced === true ? '#16a34a' : advanced === false ? '#991b1b' : step.color + '66'
+                          const nameColor = isExcluded ? '#ef4444' : advanced === true ? '#4ade80' : advanced === false ? '#f87171' : theme.textPrimary
+                          return (
+                            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 0, background: isExcluded ? '#1a0a0a' : '#1e2130', border: `1px solid ${borderColor}`, borderRadius: 6, overflow: 'hidden', opacity: isExcluded ? 0.5 : 1 }}>
+                              {/* Nome */}
+                              <span style={{ fontSize: 11, color: nameColor, textDecoration: isExcluded ? 'line-through' : 'none', padding: '3px 6px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {c.title}
+                              </span>
+                              {/* Botão ℹ */}
+                              <span
+                                onClick={e => { e.stopPropagation(); setCardHistory({ cardId: c.id, title: c.title }) }}
+                                title="Ver histórico de fases"
+                                style={{ padding: '3px 5px', color: '#475569', cursor: 'pointer', fontSize: 11, lineHeight: 1, borderLeft: '1px solid #2d3748' }}
+                                onMouseEnter={e => e.currentTarget.style.color = '#94a3b8'}
+                                onMouseLeave={e => e.currentTarget.style.color = '#475569'}
+                              >ℹ</span>
+                              {/* Botão × */}
+                              <span
+                                onClick={e => { e.stopPropagation(); toggleExclusion(step.label, c.id) }}
+                                title={isExcluded ? 'Restaurar' : 'Excluir desta fase'}
+                                style={{ padding: '3px 6px', color: isExcluded ? '#ef4444' : '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, borderLeft: '1px solid #2d3748' }}
+                                onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                onMouseLeave={e => e.currentTarget.style.color = isExcluded ? '#ef4444' : '#475569'}
+                              >×</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}
@@ -1036,22 +1168,22 @@ export default function Comercial() {
         }
       </div>
       <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column' }}>
-        <SectionTitle>Tempos de Transição (dias)</SectionTitle>
+        <SectionTitle>Tempos de Transição</SectionTitle>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gridAutoRows: '1fr', gap: 8, flex: 1 }}>
           {TRANSITIONS.map((t, i) => {
             if (t.label === null) return null
-            const allDays = TRANSITIONS.filter(x => x.label && x.dias != null && !x.summary).map(x => x.dias)
-            const max = allDays.length ? Math.max(...allDays) : 1
-            const accent = t.summary ? '#f59e0b' : t.dias == null ? '#475569' : t.dias <= max * 0.33 ? '#22c55e' : t.dias <= max * 0.66 ? '#f59e0b' : '#ef4444'
+            const allHours = TRANSITIONS.filter(x => x.label && x.horas != null && !x.summary).map(x => x.horas)
+            const max = allHours.length ? Math.max(...allHours) : 1
+            const accent = t.summary ? '#f59e0b' : t.horas == null ? '#475569' : t.horas <= max * 0.33 ? '#22c55e' : t.horas <= max * 0.66 ? '#f59e0b' : '#ef4444'
             return (
               <div key={i} style={{ background: theme.cardBg2, borderRadius: 8, padding: '10px 12px', borderTop: `2px solid ${accent}` }}>
                 <div style={{ fontSize: 10, color: theme.textMuted, marginBottom: 4, lineHeight: 1.3 }}>{t.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: accent, lineHeight: 1 }}>
-                  {t.dias != null ? `${t.dias}d` : '—'}
+                <div style={{ fontSize: 18, fontWeight: 700, color: accent, lineHeight: 1 }}>
+                  {fmtHours(t.horas)}
                 </div>
-                {t.dias != null && !t.summary && (
+                {t.horas != null && !t.summary && (
                   <div style={{ marginTop: 6, height: 2, background: theme.cardBg, borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.max((t.dias / max) * 100, 4)}%`, background: accent, borderRadius: 2 }} />
+                    <div style={{ height: '100%', width: `${Math.max((t.horas / max) * 100, 4)}%`, background: accent, borderRadius: 2 }} />
                   </div>
                 )}
                 {t.summary && <div style={{ fontSize: 9, color: theme.textMuted, marginTop: 3 }}>jornada completa</div>}
@@ -1185,6 +1317,46 @@ export default function Comercial() {
       </div>
 
 
+      {/* ── Modal histórico de fases do card ── */}
+      {cardHistory && (
+      <div
+        onClick={() => setCardHistory(null)}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: 12, padding: 24, width: 480, maxHeight: '80vh', overflow: 'auto' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <div>
+              <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{cardHistory.title}</div>
+              <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>Histórico de fases no pipe Comercial</div>
+            </div>
+            <span onClick={() => setCardHistory(null)} style={{ color: '#64748b', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 4px' }}>×</span>
+          </div>
+          {visibleEvents
+            .filter(e => e.card_id === cardHistory.cardId)
+            .sort((a, b) => (a.entered_at || '').localeCompare(b.entered_at || ''))
+            .map((e, idx) => {
+              const isActive = !e.exited_at
+              const dias = e.duration_minutes ? Math.round(e.duration_minutes / 60 / 24) : null
+              return (
+                <div key={idx} style={{ display: 'flex', gap: 12, padding: '9px 0', borderBottom: '1px solid #1e2a3a' }}>
+                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: isActive ? '#f59e0b' : '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{idx + 1}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: isActive ? '#f59e0b' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{e.phase_name}{isActive ? ' ← atual' : ''}</div>
+                    <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>
+                      Entrou: {e.entered_at?.slice(0, 10)}
+                      {e.exited_at ? ` · Saiu: ${e.exited_at.slice(0, 10)}` : ''}
+                      {dias != null ? ` · ${dias}d` : ''}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      </div>
+      )}
     </div>
   )
 }

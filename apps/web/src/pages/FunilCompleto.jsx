@@ -1,229 +1,292 @@
 import { useTheme } from '../ThemeContext.jsx'
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
-} from 'recharts'
 import DateRangePicker from '../components/DateRangePicker'
 
-const PIPES = [
-  'Liberta Precatórios',
-  'SDR-COMERCIAL',
-  'COMERCIAL',
-  'COMPLIANCE',
-  'JURIDICO',
-  'FINANCEIRO',
-]
+const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(n || 0)
+const pct = (a, b) => b > 0 ? Math.round(a / b * 100) : 0
 
-const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6']
+const LOST_COMERCIAL = ['PERDIDO - PROPOSTA INICIAL NEGADA', 'PERDIDO - BARREIRA JURÍDICA', 'PERDIDO - PROPOSTA CORRIGIDA NEGADA', 'PERDIDO - DUE INCONSISTENTE']
+const CLOSED_COMERCIAL = ['ANEXADO NOS AUTOS']
 
-function KPICard({ label, value, sub }) {
+function latestByCardFn(events) {
+  const map = {}
+  events.forEach(e => {
+    if (!map[e.card_id] || e.entered_at > map[e.card_id].entered_at) map[e.card_id] = e
+  })
+  return Object.values(map)
+}
+
+function isTestCard(e) {
+  return (e.card_title || '').toLowerCase().includes('[teste]') ||
+         (e.nome_completo || '').toLowerCase().includes('[teste]')
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function StatRow({ label, value, accent, sub }) {
   const { theme } = useTheme()
   return (
-    <div style={{ background: theme.cardBg, borderRadius: 12, padding: '20px 24px', flex: 1 }}>
-      <div style={{ color: theme.textSecondary, fontSize: 13, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: theme.textPrimary }}>{value}</div>
-      {sub && <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>{sub}</div>}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: `1px solid ${theme.border}` }}>
+      <span style={{ fontSize: 12, color: theme.textSecondary }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: accent || theme.textPrimary }}>
+        {value}{sub && <span style={{ fontSize: 11, fontWeight: 400, color: theme.textMuted, marginLeft: 4 }}>{sub}</span>}
+      </span>
     </div>
   )
 }
 
-function SectionTitle({ children }) {
+function PipeCard({ title, color, icon, stats, financial }) {
   const { theme } = useTheme()
   return (
-    <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-      {children}
-    </h2>
+    <div style={{ background: theme.cardBg, borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: color, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 18 }}>{icon}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '0.06em' }}>{title}</span>
+      </div>
+      <div style={{ padding: '12px 20px 16px', flex: 1 }}>
+        {stats.map((s, i) => <StatRow key={i} {...s} />)}
+        {financial && (
+          <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+            {financial.map((f, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: i < financial.length - 1 ? 6 : 0 }}>
+                <span style={{ fontSize: 11, color: '#64748b' }}>{f.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: f.accent || '#94a3b8' }}>{f.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
+function FlowStep({ label, count, color, pctVal, isFirst }) {
+  const { theme } = useTheme()
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+      {!isFirst && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 8px', flexShrink: 0 }}>
+          <div style={{ color: '#334155', fontSize: 18 }}>→</div>
+          {pctVal != null && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{pctVal}%</div>}
+        </div>
+      )}
+      <div style={{ flex: 1, background: theme.cardBg, borderRadius: 10, padding: '12px 16px', borderTop: `3px solid ${color}`, minWidth: 0 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color }}>{count}</div>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
+
 export default function FunilCompleto() {
   const { theme } = useTheme()
-  const [events, setEvents] = useState([])
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [pipe, setPipe] = useState('all')
-  const [dateRange, setDateRange] = useState(['', ''])
+  const [hideTest, setHideTest] = useState(true)
+  const [dateRange, setDateRange] = useState(() => {
+    const end = new Date(); const start = new Date()
+    start.setDate(end.getDate() - 30)
+    return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]
+  })
 
-  useEffect(() => {
-    fetchEvents()
-  }, [pipe, dateRange])
+  useEffect(() => { fetchAll() }, [dateRange])
 
-  async function fetchEvents() {
+  async function fetchAll() {
     setLoading(true)
-    let q = supabase.from('pipeline_events').select('*').order('entered_at', { ascending: false })
-    if (pipe !== 'all') q = q.eq('pipe_name', pipe)
-    if (dateRange[0]) q = q.gte('entered_at', dateRange[0])
-    if (dateRange[1]) q = q.lte('entered_at', dateRange[1] + 'T23:59:59')
-    const { data, error } = await q.limit(2000)
-    if (!error) setEvents(data || [])
+    const tables = ['sdr_events', 'comercial_events', 'compliance_events', 'juridico_events', 'financeiro_events']
+    const results = await Promise.all(tables.map(t => {
+      let q = supabase.from(t).select('*').eq('is_deleted', false)
+      if (dateRange[0]) q = q.gte('entered_at', dateRange[0])
+      if (dateRange[1]) q = q.lte('entered_at', dateRange[1] + 'T23:59:59')
+      return q.limit(5000).then(({ data }) => data || [])
+    }))
+    setData(results)
     setLoading(false)
   }
 
-  const totalCards = new Set(events.map(e => e.card_id)).size
-  const activeCards = new Set(events.filter(e => !e.exited_at).map(e => e.card_id)).size
-  const totalCredit = events.reduce((s, e) => s + (e.valor_credito || 0), 0)
-  const totalPaid = events.reduce((s, e) => s + (e.valor_pago_cedente || 0), 0)
-  const totalProposals = events.reduce((s, e) => s + (e.valor_proposta_cliente || 0), 0)
+  if (!data && !loading) return null
 
-  const dailyMap = {}
-  events.forEach(e => {
-    const day = e.entered_at?.slice(0, 10)
-    if (!day) return
-    dailyMap[day] = (dailyMap[day] || 0) + 1
-  })
-  const dailyData = Object.entries(dailyMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-14)
-    .map(([date, count]) => ({ date: date.slice(5), count }))
+  // ── Filtro teste ──────────────────────────────────────────────────────────
+  const [sdrRaw, comRaw, cmpRaw, jurRaw, finRaw] = (data || [[], [], [], [], []])
+  const filter = (arr) => hideTest ? arr.filter(e => !isTestCard(e)) : arr
+  const sdr = filter(sdrRaw)
+  const com = filter(comRaw)
+  const cmp = filter(cmpRaw)
+  const jur = filter(jurRaw)
+  const fin = filter(finRaw)
 
-  const pipeMap = {}
-  events.forEach(e => { pipeMap[e.pipe_name] = (pipeMap[e.pipe_name] || 0) + 1 })
-  const pipeData = Object.entries(pipeMap).map(([name, count]) => ({ name: name.split(' ')[0], count }))
+  // ── SDR ───────────────────────────────────────────────────────────────────
+  const sdrLatest = latestByCardFn(sdr)
+  const sdrTotal = sdrLatest.length
+  const sdrQual = sdrLatest.filter(e => e.phase_name === 'QUALIFICADO').length
+  const sdrDesq = sdrLatest.filter(e => e.phase_name === 'DESQUALIFICADO').length
+  const sdrAtend = sdrLatest.filter(e => e.phase_name === 'EM ATENDIMENTO').length
 
-  const phaseMap = {}
-  events.forEach(e => { phaseMap[e.phase_name] = (phaseMap[e.phase_name] || 0) + 1 })
-  const phaseData = Object.entries(phaseMap)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 12)
-    .map(([name, count]) => ({ name: name.length > 20 ? name.slice(0, 18) + '…' : name, count }))
+  // ── COMERCIAL ─────────────────────────────────────────────────────────────
+  const comLatest = latestByCardFn(com)
+  const comTotal = comLatest.length
+  const comFechados = comLatest.filter(e => CLOSED_COMERCIAL.includes(e.phase_name)).length
+  const comPerdidos = comLatest.filter(e => LOST_COMERCIAL.includes(e.phase_name)).length
+  const comAndamento = comTotal - comFechados - comPerdidos
+  const comVolCredito = (() => { const m = {}; com.forEach(e => { if (e.valor_credito_considerado) m[e.card_id] = Math.max(m[e.card_id] || 0, e.valor_credito_considerado) }); return Object.values(m).reduce((a, b) => a + b, 0) })()
+  const comVolFinal = (() => { const m = {}; com.forEach(e => { if (e.valor_final_proposta) m[e.card_id] = Math.max(m[e.card_id] || 0, e.valor_final_proposta) }); return Object.values(m).reduce((a, b) => a + b, 0) })()
+  const comVolFechado = comLatest.filter(e => CLOSED_COMERCIAL.includes(e.phase_name)).reduce((s, e) => { const m = {}; com.forEach(ev => { if (ev.card_id === e.card_id && ev.valor_final_proposta) m[ev.card_id] = Math.max(m[ev.card_id] || 0, ev.valor_final_proposta) }); return s + (m[e.card_id] || 0) }, 0)
 
-  const durationMap = {}
-  const durationCount = {}
-  events.forEach(e => {
-    if (e.duration_minutes && e.duration_minutes > 0) {
-      durationMap[e.phase_name] = (durationMap[e.phase_name] || 0) + e.duration_minutes
-      durationCount[e.phase_name] = (durationCount[e.phase_name] || 0) + 1
-    }
-  })
-  const durationData = Object.entries(durationMap)
-    .map(([name, total]) => ({ name: name.length > 18 ? name.slice(0, 16) + '…' : name, avg: Math.round(total / durationCount[name] / 60 / 24) }))
-    .sort((a, b) => b.avg - a.avg)
-    .slice(0, 10)
+  // ── COMPLIANCE ────────────────────────────────────────────────────────────
+  const cmpLatest = latestByCardFn(cmp)
+  const cmpTotal = cmpLatest.length
+  const cmpDueConcluida = cmp.filter(e => e.phase_name === 'DUE CONCLUÍDA')
+  const cmpComInc = cmpDueConcluida.filter(e => e.tem_inconsistencia && !['não','nao'].includes((e.tem_inconsistencia || '').toLowerCase())).length
+  const cmpSemInc = cmpDueConcluida.length - cmpComInc
 
-  const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(n)
+  // ── JURÍDICO ──────────────────────────────────────────────────────────────
+  const jurLatest = latestByCardFn(jur)
+  const jurTotal = jurLatest.length
+  const jurAnexados = jurLatest.filter(e => e.phase_name === 'ANEXADO NOS AUTOS').length
+  const jurPerdidos = jurLatest.filter(e => e.phase_name === 'PERDIDO - DUE INCONSISTENTE').length
+  const jurAndamento = jurTotal - jurAnexados - jurPerdidos
+  const jurVolExec = (() => { const m = {}; jur.forEach(e => { if (e.valor_total_executado) m[e.card_id] = Math.max(m[e.card_id] || 0, e.valor_total_executado) }); return Object.values(m).reduce((a, b) => a + b, 0) })()
 
-  const selectStyle = {
-    background: theme.cardBg, border: '1px solid #2d3748', color: theme.textPrimary,
-    borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', cursor: 'pointer',
-  }
+  // ── FINANCEIRO ────────────────────────────────────────────────────────────
+  const finLatest = latestByCardFn(fin)
+  const finTotal = finLatest.length
+  const finRealizado = finLatest.filter(e => e.phase_name === 'PAGAMENTO REALIZADO').length
+  const finLiberado = finLatest.filter(e => e.phase_name === 'PAGAMENTO LIBERADO').length
+  const finVolReal = (() => { const m = {}; fin.forEach(e => { if (e.valor_final_da_proposta) m[e.card_id] = Math.max(m[e.card_id] || 0, e.valor_final_da_proposta) }); return Object.values(m).filter((_, i) => finLatest.filter(e => e.phase_name === 'PAGAMENTO REALIZADO')[i]).reduce((a, b) => a + b, 0) })()
+  const finVolTotal = (() => { const m = {}; fin.forEach(e => { if (e.valor_final_da_proposta) m[e.card_id] = Math.max(m[e.card_id] || 0, e.valor_final_da_proposta) }); return Object.values(m).reduce((a, b) => a + b, 0) })()
+
+  // ── Fluxo pipeline ────────────────────────────────────────────────────────
+  const flowSteps = [
+    { label: 'SDR Qualificados', count: sdrQual, color: '#6366f1' },
+    { label: 'Comercial', count: comTotal, color: '#8b5cf6' },
+    { label: 'Compliance', count: cmpTotal, color: '#06b6d4' },
+    { label: 'Jurídico', count: jurTotal, color: '#f59e0b' },
+    { label: 'Financeiro', count: finTotal, color: '#10b981' },
+  ]
 
   return (
     <div style={{ padding: '32px 40px' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary }}>Funil Completo</h1>
-          <p style={{ color: theme.textMuted, fontSize: 13, marginTop: 2 }}>Visão geral de todos os pipes</p>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary, marginBottom: 4 }}>Visão Geral do Pipeline</h1>
+          <p style={{ color: theme.textMuted, fontSize: 13 }}>Resumo consolidado de todos os pipes — SDR → Comercial → Compliance → Jurídico → Financeiro</p>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <select value={pipe} onChange={e => setPipe(e.target.value)} style={selectStyle}>
-            <option value="all">Todos os pipes</option>
-            {PIPES.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setHideTest(h => !h)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${theme.border}`, background: hideTest ? theme.cardBg : '#fef3c7', color: hideTest ? theme.textMuted : '#92400e', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: hideTest ? theme.textFaint : '#f59e0b', display: 'inline-block' }} />
+            {hideTest ? 'Ocultar testes' : 'Ver testes'}
+          </button>
           <DateRangePicker value={dateRange} onChange={setDateRange} />
         </div>
       </div>
 
       {loading && <div style={{ color: theme.textMuted, marginBottom: 24 }}>Carregando...</div>}
 
-      {/* KPIs */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
-        <KPICard label="Cards Únicos" value={totalCards} sub={`${activeCards} ativos`} />
-        <KPICard label="Volume de Crédito" value={fmt(totalCredit)} sub="soma dos eventos" />
-        <KPICard label="Propostas Clientes" value={fmt(totalProposals)} sub="valor total" />
-        <KPICard label="Pago ao Cedente" value={fmt(totalPaid)} sub="realizado" />
-        <KPICard label="Total de Eventos" value={events.length} sub="registros na base" />
+      {/* Pipeline flow */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 32 }}>
+        {flowSteps.map((step, i) => (
+          <FlowStep
+            key={step.label}
+            {...step}
+            isFirst={i === 0}
+            pctVal={i > 0 ? pct(step.count, flowSteps[i - 1].count) : null}
+          />
+        ))}
       </div>
 
-      {/* Charts row 1 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
-        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
-          <SectionTitle>Entradas por Dia (últimos 14 dias)</SectionTitle>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={dailyData} barSize={20}>
-              <XAxis dataKey="date" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <YAxis stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
-              <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Pipe cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 32 }}>
+        <PipeCard
+          title="SDR — COMERCIAL"
+          color="#6366f1"
+          icon="📋"
+          stats={[
+            { label: 'Total de leads', value: sdrTotal },
+            { label: 'Em atendimento', value: sdrAtend, accent: '#f59e0b' },
+            { label: 'Qualificados', value: sdrQual, accent: '#10b981', sub: `${pct(sdrQual, sdrTotal)}%` },
+            { label: 'Desqualificados', value: sdrDesq, accent: '#ef4444', sub: `${pct(sdrDesq, sdrTotal)}%` },
+          ]}
+        />
 
-        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
-          <SectionTitle>Eventos por Pipe</SectionTitle>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={pipeData} barSize={28}>
-              <XAxis dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <YAxis stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {pipeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <PipeCard
+          title="COMERCIAL"
+          color="#8b5cf6"
+          icon="🤝"
+          stats={[
+            { label: 'Total de negociações', value: comTotal },
+            { label: 'Em andamento', value: comAndamento, accent: '#6366f1' },
+            { label: 'Fechados', value: comFechados, accent: '#10b981', sub: `${pct(comFechados, comTotal)}%` },
+            { label: 'Perdidos', value: comPerdidos, accent: '#ef4444', sub: `${pct(comPerdidos, comTotal)}%` },
+          ]}
+          financial={[
+            { label: 'Vol. Crédito', value: fmt(comVolCredito), accent: '#8b5cf6' },
+            { label: 'Vol. Proposta', value: fmt(comVolFinal), accent: '#a78bfa' },
+          ]}
+        />
+
+        <PipeCard
+          title="COMPLIANCE"
+          color="#06b6d4"
+          icon="🔍"
+          stats={[
+            { label: 'Total de cards', value: cmpTotal },
+            { label: 'Due Concluída', value: cmpDueConcluida.length, accent: '#06b6d4', sub: `${pct(cmpDueConcluida.length, cmpTotal)}%` },
+            { label: 'Com inconsistência', value: cmpComInc, accent: '#ef4444', sub: cmpDueConcluida.length > 0 ? `${pct(cmpComInc, cmpDueConcluida.length)}%` : '' },
+            { label: 'Sem inconsistência', value: cmpSemInc, accent: '#10b981', sub: cmpDueConcluida.length > 0 ? `${pct(cmpSemInc, cmpDueConcluida.length)}%` : '' },
+          ]}
+        />
+
+        <PipeCard
+          title="JURÍDICO"
+          color="#f59e0b"
+          icon="⚖️"
+          stats={[
+            { label: 'Total de cards', value: jurTotal },
+            { label: 'Em andamento', value: jurAndamento, accent: '#f59e0b' },
+            { label: 'Anexados nos autos', value: jurAnexados, accent: '#10b981', sub: `${pct(jurAnexados, jurTotal)}%` },
+            { label: 'Perdidos', value: jurPerdidos, accent: '#ef4444', sub: `${pct(jurPerdidos, jurTotal)}%` },
+          ]}
+          financial={[
+            { label: 'Vol. Executado', value: fmt(jurVolExec), accent: '#fbbf24' },
+          ]}
+        />
+
+        <PipeCard
+          title="FINANCEIRO"
+          color="#10b981"
+          icon="💰"
+          stats={[
+            { label: 'Total de cards', value: finTotal },
+            { label: 'Aguardando pagamento', value: finLiberado, accent: '#f59e0b' },
+            { label: 'Pagamento realizado', value: finRealizado, accent: '#10b981', sub: `${pct(finRealizado, finTotal)}%` },
+          ]}
+          financial={[
+            { label: 'Vol. Realizado', value: fmt(finVolTotal), accent: '#10b981' },
+          ]}
+        />
       </div>
 
-      {/* Charts row 2 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
-        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
-          <SectionTitle>Top Fases por Volume</SectionTitle>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={phaseData} layout="vertical" barSize={14}>
-              <XAxis type="number" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 10 }} width={130} />
-              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
-              <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
-          <SectionTitle>Tempo Médio por Fase (dias)</SectionTitle>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={durationData} layout="vertical" barSize={14}>
-              <XAxis type="number" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" stroke={theme.textFaint} tick={{ fill: theme.textSecondary, fontSize: 10 }} width={130} />
-              <Tooltip contentStyle={{ background: theme.pageBg, border: '1px solid #2d3748', color: theme.textPrimary }} />
-              <Bar dataKey="avg" fill="#10b981" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Events table */}
-      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24 }}>
-        <SectionTitle>Últimos Eventos ({events.length})</SectionTitle>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #2d3748' }}>
-                {['Card', 'Pipe', 'Fase', 'Entrou', 'Saiu', 'Duração (dias)', 'Crédito', 'Pago'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: theme.textMuted, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {events.slice(0, 100).map(e => (
-                <tr key={e.id} style={{ borderBottom: '1px solid #1a1f2e' }}>
-                  <td style={{ padding: '9px 12px', color: theme.textSecondary, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.card_title}</td>
-                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.pipe_name}</td>
-                  <td style={{ padding: '9px 12px', color: theme.textPrimary, whiteSpace: 'nowrap' }}>{e.phase_name}</td>
-                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.entered_at?.slice(0, 10)}</td>
-                  <td style={{ padding: '9px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{e.exited_at?.slice(0, 10) || '—'}</td>
-                  <td style={{ padding: '9px 12px', color: theme.textSecondary, textAlign: 'right' }}>
-                    {e.duration_minutes ? Math.round(e.duration_minutes / 60 / 24) : '—'}
-                  </td>
-                  <td style={{ padding: '9px 12px', color: theme.textSecondary, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {e.valor_credito ? fmt(e.valor_credito) : '—'}
-                  </td>
-                  <td style={{ padding: '9px 12px', color: '#10b981', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {e.valor_pago_cedente ? fmt(e.valor_pago_cedente) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Financial summary row */}
+      <div style={{ background: theme.cardBg, borderRadius: 14, padding: '20px 28px' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 20 }}>Resumo Financeiro Consolidado</div>
+        <div style={{ display: 'flex', gap: 0 }}>
+          {[
+            { label: 'Crédito em negociação', value: fmt(comVolCredito), color: '#8b5cf6', sub: 'Comercial' },
+            { label: 'Propostas formuladas', value: fmt(comVolFinal), color: '#a78bfa', sub: 'Comercial' },
+            { label: 'Vol. executado jurídico', value: fmt(jurVolExec), color: '#f59e0b', sub: 'Jurídico' },
+            { label: 'Volume realizado', value: fmt(finVolTotal), color: '#10b981', sub: 'Financeiro' },
+            { label: 'Taxa de fechamento', value: `${pct(comFechados, comTotal)}%`, color: comFechados > 0 ? '#10b981' : '#ef4444', sub: 'Fechados / Comercial' },
+          ].map((item, i, arr) => (
+            <div key={item.label} style={{ flex: 1, padding: '0 20px', borderLeft: i > 0 ? `1px solid ${theme.border}` : 'none' }}>
+              <div style={{ fontSize: 11, color: '#475569', marginBottom: 4 }}>{item.sub}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: item.color, marginBottom: 4 }}>{item.value}</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>{item.label}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

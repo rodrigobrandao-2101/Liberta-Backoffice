@@ -6,12 +6,12 @@ import {
 } from 'recharts'
 import DateRangePicker from '../components/DateRangePicker'
 
-const USE_MOCK = true //← mude para false quando o banco tiver dados reais
+const USE_MOCK = false
 
-const PHASE_TABS = ['TODOS', 'NÃO IDENTIFICADO', 'QUALIFICADO', 'DESQUALIFICADO']
+const PHASE_TABS = ['TODOS', 'NAO IDENTIFICADO', 'QUALIFICADO', 'DESQUALIFICADO']
 
 const PHASE_COLORS = {
-  'NÃO IDENTIFICADO': '#f59e0b',
+  'NAO IDENTIFICADO': '#f59e0b',
   'QUALIFICADO': '#10b981',
   'DESQUALIFICADO': '#ef4444',
 }
@@ -109,12 +109,39 @@ function SectionTitle({ children }) {
   )
 }
 
+function ConvRates({ n, conversas, novasCon, total }) {
+  const { theme } = useTheme()
+  const fmt = (a, b) => b > 0 ? `${(a / b * 100).toFixed(2)}%` : '—'
+  const rows = [
+    { label: '/ conversas', value: fmt(n, conversas), color: '#10b981' },
+    { label: '/ novas con.', value: fmt(n, novasCon),  color: '#06b6d4' },
+    { label: '/ total leads', value: fmt(n, total),    color: '#6366f1' },
+  ]
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, minWidth: 0 }}>
+      {rows.map(r => (
+        <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
+          <span style={{ color: theme.textMuted, fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+          <span style={{ color: r.color, fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{r.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function SDR() {
   const { theme } = useTheme()
-  const [dateRange, setDateRange] = useState(['', ''])
+  const [dateRange, setDateRange] = useState(() => {
+    const end = new Date()
+    const start = new Date(); start.setDate(end.getDate() - 14)
+    return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]
+  })
   const [activePhase, setActivePhase] = useState('TODOS')
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [metaRows, setMetaRows] = useState([])
+  const [hideTest, setHideTest] = useState(true)
+  const [comercialBacklog, setComercialBacklog] = useState([])
 
   useEffect(() => { fetchData() }, [dateRange])
 
@@ -129,22 +156,58 @@ export default function SDR() {
       return
     }
     let q = supabase
-      .from('pipeline_events')
+      .from('sdr_events')
       .select('*')
-      .eq('pipe_name', 'SDR-COMERCIAL')
+      .eq('is_deleted', false)
       .order('entered_at', { ascending: true })
-    if (dateRange[0]) q = q.gte('entered_at', dateRange[0])
-    if (dateRange[1]) q = q.lte('entered_at', dateRange[1] + 'T23:59:59')
-    const { data } = await q.limit(5000)
+    if (dateRange[0]) q = q.gte('entered_at', dateRange[0] + 'T00:00:00-03:00')
+    if (dateRange[1]) q = q.lte('entered_at', dateRange[1] + 'T23:59:59-03:00')
+
+    let mq = supabase
+      .from('meta_insights_daily')
+      .select('date, messaging_conversations_started, new_messaging_connections')
+    if (dateRange[0]) mq = mq.gte('date', dateRange[0])
+    if (dateRange[1]) mq = mq.lte('date', dateRange[1])
+
+    const bq = supabase
+      .from('comercial_events')
+      .select('card_title, entered_at')
+      .eq('is_deleted', false)
+      .eq('phase_name', 'BACKLOG - COMERCIAL')
+      .limit(2000)
+
+    const [{ data }, { data: mRows }, { data: bRows }] = await Promise.all([q.limit(5000), mq.limit(5000), bq])
     setEvents(data || [])
+    setMetaRows(mRows || [])
+    setComercialBacklog(bRows || [])
     setLoading(false)
   }
 
+  // ── Meta Ads agregados ────────────────────────────────────────────────────
+  const dailyMeta = {}
+  metaRows.forEach(r => {
+    const d = r.date?.slice(0, 10)
+    if (!d) return
+    if (!dailyMeta[d]) dailyMeta[d] = { conversas: 0, novasCon: 0 }
+    dailyMeta[d].conversas += r.messaging_conversations_started || 0
+    dailyMeta[d].novasCon  += r.new_messaging_connections || 0
+  })
+  const metaStats = {
+    conversas: metaRows.reduce((s, r) => s + (r.messaging_conversations_started || 0), 0),
+    novasCon:  metaRows.reduce((s, r) => s + (r.new_messaging_connections || 0), 0),
+  }
+
+  // ── Filtro de cards de teste ──────────────────────────────────────────────
+  // SDR: card_title é telefone — checar is_test (DB), nome_completo e card_title
+  const visibleEvents = hideTest
+    ? events.filter(e => !e.is_test && !(e.card_title || '').toLowerCase().includes('[teste]') && !(e.nome_completo || '').toLowerCase().includes('[teste]'))
+    : events
+
   // ── KPIs (always over all events in date range) ───────────────────────────
-  const allCardIds = new Set(events.map(e => e.card_id))
-  const qualIds = new Set(events.filter(e => e.phase_name === 'QUALIFICADO').map(e => e.card_id))
-  const desqIds = new Set(events.filter(e => e.phase_name === 'DESQUALIFICADO').map(e => e.card_id))
-  const naoIds = new Set(events.filter(e => e.phase_name === 'NÃO IDENTIFICADO').map(e => e.card_id))
+  const allCardIds = new Set(visibleEvents.map(e => e.card_id))
+  const qualIds = new Set(visibleEvents.filter(e => e.phase_name === 'QUALIFICADO').map(e => e.card_id))
+  const desqIds = new Set(visibleEvents.filter(e => e.phase_name === 'DESQUALIFICADO').map(e => e.card_id))
+  const naoIds = new Set(visibleEvents.filter(e => e.phase_name === 'NAO IDENTIFICADO').map(e => e.card_id))
   const emAnalise = new Set([...naoIds].filter(id => !qualIds.has(id) && !desqIds.has(id)))
 
   const total = allCardIds.size
@@ -154,20 +217,44 @@ export default function SDR() {
 
   // ── Filtered events for charts ────────────────────────────────────────────
   const filtered = activePhase === 'TODOS'
-    ? events
-    : events.filter(e => e.phase_name === activePhase)
+    ? visibleEvents
+    : visibleEvents.filter(e => e.phase_name === activePhase)
 
   // Daily entries — 3 series: todos, qualificado, desqualificado
-  const dailyAll = {}, dailyQual = {}, dailyDesq = {}, dailyNao = {}
-  events.forEach(e => {
+  // "Todos" = novos leads únicos por dia (primeiro evento do card)
+  const firstEventByCard = {}
+  visibleEvents.forEach(e => {
+    if (!e.entered_at) return
+    if (!firstEventByCard[e.card_id] || e.entered_at < firstEventByCard[e.card_id]) {
+      firstEventByCard[e.card_id] = e.entered_at
+    }
+  })
+  const dailyAll = {}
+  Object.values(firstEventByCard).forEach(date => {
+    const day = date?.slice(0, 10)
+    if (day) dailyAll[day] = (dailyAll[day] || 0) + 1
+  })
+
+  const dailyQual = {}, dailyDesq = {}, dailyNao = {}
+  visibleEvents.forEach(e => {
     const day = e.entered_at?.slice(0, 10)
     if (!day) return
-    dailyAll[day] = (dailyAll[day] || 0) + 1
-    if (e.phase_name === 'QUALIFICADO')    dailyQual[day] = (dailyQual[day] || 0) + 1
-    if (e.phase_name === 'DESQUALIFICADO') dailyDesq[day] = (dailyDesq[day] || 0) + 1
-    if (e.phase_name === 'NÃO IDENTIFICADO') dailyNao[day] = (dailyNao[day] || 0) + 1
+    if (e.phase_name === 'QUALIFICADO')      dailyQual[day] = (dailyQual[day] || 0) + 1
+    if (e.phase_name === 'DESQUALIFICADO')   dailyDesq[day] = (dailyDesq[day] || 0) + 1
+    if (e.phase_name === 'NAO IDENTIFICADO') dailyNao[day]  = (dailyNao[day]  || 0) + 1
   })
-  const allDays = [...new Set([...Object.keys(dailyAll), ...Object.keys(dailyQual), ...Object.keys(dailyDesq)])].sort()
+  const eventDays = [...new Set([...Object.keys(dailyAll), ...Object.keys(dailyQual), ...Object.keys(dailyDesq)])].sort()
+  const rangeStart = dateRange[0] || eventDays[0]
+  const rangeEnd   = dateRange[1] || eventDays[eventDays.length - 1]
+  const allDays = []
+  if (rangeStart && rangeEnd) {
+    const cur = new Date(rangeStart + 'T00:00:00')
+    const last = new Date(rangeEnd + 'T00:00:00')
+    while (cur <= last) {
+      allDays.push(cur.toISOString().slice(0, 10))
+      cur.setDate(cur.getDate() + 1)
+    }
+  }
   const dailyData = allDays.map(day => ({
     date: day.slice(8) + '/' + day.slice(5, 7),
     todos: dailyAll[day] || 0,
@@ -195,12 +282,65 @@ export default function SDR() {
     const d = dailyDesq[day] || 0
     const a = dailyNao[day] || 0
     const brDate = day.slice(8) + '/' + day.slice(5, 7) + '/' + day.slice(0, 4)
-    return { date: brDate, todos: t, analise: a, txAnalise: pct(a, t), qual: q, txQual: pct(q, t), desq: d, txDesq: pct(d, t) }
+    return { date: brDate, iso: day, todos: t, analise: a, txAnalise: pct(a, t), qual: q, txQual: pct(q, t), desq: d, txDesq: pct(d, t) }
   }).reverse()
+
+  // ── Qualificados × Backlog Comercial ─────────────────────────────────────
+  // Cruzamento por nome_completo (SDR) ↔ card_title (Comercial)
+  const backlogByName = {}
+  comercialBacklog.forEach(r => {
+    const key = (r.card_title || '').trim().toLowerCase()
+    if (key) backlogByName[key] = r.entered_at
+  })
+
+  const qualRows = []
+  const seenQualCards = {}
+  ;[...visibleEvents].reverse().forEach(e => {
+    if (e.phase_name !== 'QUALIFICADO') return
+    if (seenQualCards[e.card_id]) return
+    seenQualCards[e.card_id] = true
+    const nomeLower = (e.nome_completo || '').trim().toLowerCase()
+    const backlogAt = backlogByName[nomeLower] || null
+    qualRows.push({
+      data: e.entered_at?.slice(0, 10),
+      nomeCompleto: e.nome_completo || '—',
+      telefone: e.card_title || '—',
+      numeroProcesso: e.numero_processo || '—',
+      dataHoraQual: e.entered_at,
+      noBacklog: !!backlogAt,
+      dataHoraBacklog: backlogAt || null,
+    })
+  })
+  qualRows.sort((a, b) => (b.dataHoraQual || '').localeCompare(a.dataHoraQual || ''))
+
+  const desqRows = []
+  const seenDesqCards = {}
+  ;[...visibleEvents].reverse().forEach(e => {
+    if (e.phase_name !== 'DESQUALIFICADO') return
+    if (seenDesqCards[e.card_id]) return
+    seenDesqCards[e.card_id] = true
+    desqRows.push({
+      data: e.entered_at?.slice(0, 10),
+      nomeCompleto: e.nome_completo || '—',
+      telefone: e.card_title || '—',
+      numeroProcesso: e.numero_processo || '—',
+      qualificado: e.todos_os_campos_acima_s_o_de_um_lead_qualificado || '—',
+      motivo: e.motivo_desqualificado || '—',
+      dataHoraDesq: e.entered_at,
+    })
+  })
+  desqRows.sort((a, b) => (b.dataHoraDesq || '').localeCompare(a.dataHoraDesq || ''))
+
+  function fmtDT(iso) {
+    if (!iso) return '—'
+    const brt = new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000)
+    const pad = n => String(n).padStart(2, '0')
+    return `${pad(brt.getUTCDate())}/${pad(brt.getUTCMonth() + 1)}/${brt.getUTCFullYear()} ${pad(brt.getUTCHours())}:${pad(brt.getUTCMinutes())}`
+  }
 
   // Phase distribution
   const phaseMap = {}
-  events.forEach(e => {
+  visibleEvents.forEach(e => {
     if (e.phase_name) phaseMap[e.phase_name] = (phaseMap[e.phase_name] || 0) + 1
   })
   const phaseData = Object.entries(phaseMap).map(([name, count]) => ({
@@ -235,20 +375,74 @@ export default function SDR() {
           <h1 style={{ fontSize: 20, fontWeight: 700, color: theme.textPrimary, marginBottom: 4 }}>SDR</h1>
           <p style={{ color: theme.textMuted, fontSize: 13 }}>Qualificação de leads — pipe SDR-COMERCIAL</p>
         </div>
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setHideTest(h => !h)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${theme.border}`, background: hideTest ? theme.cardBg : '#fef3c7', color: hideTest ? theme.textMuted : '#92400e', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: hideTest ? theme.textFaint : '#f59e0b', display: 'inline-block' }} />
+            {hideTest ? 'Ocultar testes' : 'Ver testes'}
+          </button>
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+        </div>
       </div>
 
 {loading && <div style={{ color: theme.textMuted, marginBottom: 24 }}>Carregando...</div>}
 
       {/* ── KPIs ── */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
+        {/* Meta Ads — card unificado */}
+        <div style={{ flex: 2, background: theme.cardBg, borderRadius: 12, padding: '20px 24px', borderTop: '3px solid #10b981' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Meta Ads</div>
+          <div style={{ display: 'flex', gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#10b981' }}>{metaStats.conversas}</div>
+              <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 3 }}>Conversas iniciadas</div>
+            </div>
+            <div style={{ width: 1, background: '#2d3748', alignSelf: 'stretch' }} />
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#06b6d4' }}>{metaStats.novasCon}</div>
+              <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 3 }}>Novas conexões</div>
+            </div>
+          </div>
+        </div>
         <KPICard label="Total de Leads" value={total} sub="cards únicos no período" accent="#6366f1" />
-        <KPICard label="Em Análise" value={emAnalise.size} sub="ainda sem decisão" accent="#f59e0b" />
-        <KPICard label="Taxa em Análise" value={`${total > 0 ? Math.round(emAnalise.size / total * 100) : 0}%`} sub="em análise / total de leads" />
-        <KPICard label="Qualificados" value={qual} sub={`${taxa}% de conversão`} accent="#10b981" />
-        <KPICard label="Taxa de Qualificação" value={`${taxa}%`} sub="qualificados / total de leads" />
-        <KPICard label="Desqualificados" value={desq} sub="leads perdidos" accent="#ef4444" />
-        <KPICard label="Taxa de Desqualificação" value={`${total > 0 ? Math.round(desq / total * 100) : 0}%`} sub="desqualificados / total de leads" />
+
+        {/* Em Análise — card unificado */}
+        <div style={{ flex: 2, background: theme.cardBg, borderRadius: 12, padding: '20px 24px', borderTop: '3px solid #f59e0b' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Em Análise</div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#f59e0b' }}>{emAnalise.size}</div>
+              <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 3 }}>sem decisão</div>
+            </div>
+            <div style={{ width: 1, background: '#2d3748', alignSelf: 'stretch' }} />
+            <ConvRates n={emAnalise.size} conversas={metaStats.conversas} novasCon={metaStats.novasCon} total={total} />
+          </div>
+        </div>
+
+        {/* Qualificados — card unificado */}
+        <div style={{ flex: 2, background: theme.cardBg, borderRadius: 12, padding: '20px 24px', borderTop: '3px solid #10b981' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Qualificados</div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#10b981' }}>{qual}</div>
+              <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 3 }}>qualificados</div>
+            </div>
+            <div style={{ width: 1, background: '#2d3748', alignSelf: 'stretch' }} />
+            <ConvRates n={qual} conversas={metaStats.conversas} novasCon={metaStats.novasCon} total={total} />
+          </div>
+        </div>
+
+        {/* Desqualificados — card unificado */}
+        <div style={{ flex: 2, background: theme.cardBg, borderRadius: 12, padding: '20px 24px', borderTop: '3px solid #ef4444' }}>
+          <div style={{ color: theme.textSecondary, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Desqualificados</div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#ef4444' }}>{desq}</div>
+              <div style={{ color: theme.textMuted, fontSize: 12, marginTop: 3 }}>perdidos</div>
+            </div>
+            <div style={{ width: 1, background: '#2d3748', alignSelf: 'stretch' }} />
+            <ConvRates n={desq} conversas={metaStats.conversas} novasCon={metaStats.novasCon} total={total} />
+          </div>
+        </div>
       </div>
 
       {/* ── Charts row ── */}
@@ -303,28 +497,36 @@ export default function SDR() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr>
-                    {['Data', 'Todos', 'Em Análise', 'Tx Análise', 'Qualificados', 'Tx Qualificados', 'Desqualificados', 'Tx Desqualificados'].map(h => (
+                    {['Data', 'Conversas', 'Novas Con.', 'Leads', 'Em Análise', 'Tx Análise', 'Qualificados', 'Tx Qualificados', 'Desqualificados', 'Tx Desqualificados'].map(h => (
                       <th key={h} style={thStyle(h === 'Data' ? 'left' : 'center')}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {tableData.map(row => (
-                    <tr key={row.date} style={{ borderBottom: '1px solid #1a1f2e' }}>
-                      <td style={{ padding: '9px 14px', color: theme.textSecondary }}>{row.date}</td>
-                      <td style={{ padding: '9px 14px', color: '#a5b4fc', textAlign: 'center', fontWeight: 600 }}>{row.todos}</td>
-                      <td style={{ padding: '9px 14px', color: '#fbbf24', textAlign: 'center' }}>{row.analise}</td>
-                      <td style={{ padding: '9px 14px', color: theme.textMuted, textAlign: 'center' }}>{row.txAnalise}</td>
-                      <td style={{ padding: '9px 14px', color: '#34d399', textAlign: 'center' }}>{row.qual}</td>
-                      <td style={{ padding: '9px 14px', color: taxaColor(row.txQual, false), textAlign: 'center', fontWeight: 600 }}>{row.txQual}</td>
-                      <td style={{ padding: '9px 14px', color: '#f87171', textAlign: 'center' }}>{row.desq}</td>
-                      <td style={{ padding: '9px 14px', color: taxaColor(row.txDesq, true), textAlign: 'center', fontWeight: 600 }}>{row.txDesq}</td>
-                    </tr>
-                  ))}
+                  {tableData.map(row => {
+                    const conv  = dailyMeta[row.iso]?.conversas || 0
+                    const novas = dailyMeta[row.iso]?.novasCon  || 0
+                    return (
+                      <tr key={row.date} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                        <td style={{ padding: '9px 14px', color: theme.textSecondary }}>{row.date}</td>
+                        <td style={{ padding: '9px 14px', color: '#10b981', textAlign: 'center' }}>{conv || '—'}</td>
+                        <td style={{ padding: '9px 14px', color: '#06b6d4', textAlign: 'center' }}>{novas || '—'}</td>
+                        <td style={{ padding: '9px 14px', color: '#a5b4fc', textAlign: 'center', fontWeight: 600 }}>{row.todos}</td>
+                        <td style={{ padding: '9px 14px', color: '#fbbf24', textAlign: 'center' }}>{row.analise}</td>
+                        <td style={{ padding: '9px 14px', color: theme.textMuted, textAlign: 'center' }}>{row.txAnalise}</td>
+                        <td style={{ padding: '9px 14px', color: '#34d399', textAlign: 'center' }}>{row.qual}</td>
+                        <td style={{ padding: '9px 14px', color: taxaColor(row.txQual, false), textAlign: 'center', fontWeight: 600 }}>{row.txQual}</td>
+                        <td style={{ padding: '9px 14px', color: '#f87171', textAlign: 'center' }}>{row.desq}</td>
+                        <td style={{ padding: '9px 14px', color: taxaColor(row.txDesq, true), textAlign: 'center', fontWeight: 600 }}>{row.txDesq}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
                 <tfoot>
                   <tr>
                     <td style={{ ...tfStyle(theme.textPrimary), textAlign: 'left' }}>Total</td>
+                    <td style={tfStyle('#10b981')}>{metaStats.conversas}</td>
+                    <td style={tfStyle('#06b6d4')}>{metaStats.novasCon}</td>
                     <td style={tfStyle('#a5b4fc')}>{tTodos}</td>
                     <td style={tfStyle('#fbbf24')}>{tAnalise}</td>
                     <td style={tfStyle(theme.textMuted)}>{pct(tAnalise, tTodos)}</td>
@@ -338,6 +540,88 @@ export default function SDR() {
             </div>
           )
         })()}
+      </div>
+
+      {/* ── Qualificados × Backlog Comercial ── */}
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, marginTop: 24 }}>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
+            Cliente Qualificado — Conferência Backlog Comercial
+          </h2>
+          <p style={{ color: '#475569', fontSize: 12, marginTop: 4, marginBottom: 0 }}>{qualRows.length} leads qualificados no período</p>
+        </div>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 400 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                {['Data', 'Nome Completo', 'Telefone', 'Nº Processo', 'Qualificado', 'Data/Hora Qualificação', 'No Backlog', 'Data/Hora Backlog'].map(h => (
+                  <th key={h} style={{ padding: '9px 12px', color: theme.textMuted, fontWeight: 600, textAlign: 'left', background: theme.cardBg, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid #2d3748', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {qualRows.map((row, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                  <td style={{ padding: '8px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{row.data || '—'}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textPrimary, whiteSpace: 'nowrap' }}>{row.nomeCompleto}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textSecondary, whiteSpace: 'nowrap' }}>{row.telefone}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{row.numeroProcesso}</td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <span style={{ background: '#05301e', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>SIM</span>
+                  </td>
+                  <td style={{ padding: '8px 12px', color: theme.textSecondary, whiteSpace: 'nowrap' }}>{fmtDT(row.dataHoraQual)}</td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    {row.noBacklog
+                      ? <span style={{ background: '#05301e', color: '#10b981', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>SIM</span>
+                      : <span style={{ background: '#2d0a0a', color: '#ef4444', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>NÃO</span>}
+                  </td>
+                  <td style={{ padding: '8px 12px', color: row.noBacklog ? '#10b981' : '#475569', whiteSpace: 'nowrap' }}>{fmtDT(row.dataHoraBacklog)}</td>
+                </tr>
+              ))}
+              {qualRows.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#475569' }}>Nenhum lead qualificado no período</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Desqualificados — Motivo ── */}
+      <div style={{ background: theme.cardBg, borderRadius: 12, padding: 24, marginTop: 24 }}>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ color: theme.textSecondary, fontSize: 13, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
+            Cliente Desqualificado — Motivo
+          </h2>
+          <p style={{ color: '#475569', fontSize: 12, marginTop: 4, marginBottom: 0 }}>{desqRows.length} leads desqualificados no período</p>
+        </div>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 400 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                {['Data', 'Nome Completo', 'Telefone', 'Nº Processo', 'Qualificado', 'Motivo Desqualificado'].map(h => (
+                  <th key={h} style={{ padding: '9px 12px', color: theme.textMuted, fontWeight: 600, textAlign: 'left', background: theme.cardBg, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid #2d3748', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {desqRows.map((row, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                  <td style={{ padding: '8px 12px', color: theme.textMuted, whiteSpace: 'nowrap' }}>{row.data || '—'}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textPrimary, whiteSpace: 'nowrap' }}>{row.nomeCompleto}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textSecondary, whiteSpace: 'nowrap' }}>{row.telefone}</td>
+                  <td style={{ padding: '8px 12px', color: theme.textMuted, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.numeroProcesso}</td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <span style={{ background: '#2d0a0a', color: '#ef4444', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>NÃO</span>
+                  </td>
+                  <td style={{ padding: '8px 12px', color: '#fbbf24', whiteSpace: 'nowrap' }}>{row.motivo}</td>
+                </tr>
+              ))}
+              {desqRows.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#475569' }}>Nenhum lead desqualificado no período</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
